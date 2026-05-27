@@ -1755,6 +1755,7 @@ static inline void Synth808TriggerByPad(uint8_t padIdx, float velocity)
 }
 
 /* Bitmask: qué engines están activos */
+static constexpr float kDrumBusHeadroom = 0.70f;  // evita clipping al mezclar 808/909/505
 static uint16_t synthActiveMask = 0x01FF;  /* all 9 engines active */
 static uint8_t pianoSelectedEngine = SYNTH_ENGINE_303;
 
@@ -3782,6 +3783,26 @@ static void RunStartupStressReport(uint32_t nowMs)
     }
 }
 
+/* ── Reporte periódico del profiler DSP durante uso normal ──
+ * Solo activo con RED808_DSP_BLOCK_PROFILE=1; coste cero en producción.
+ * Emite por serial cada kDspLiveProfileMs los ciclos/% por engine y FX,
+ * medidos con los patrones reales (a diferencia del stress de arranque,
+ * que usa patrones sintéticos). Util para decidir qué optimizar. */
+#if RED808_DSP_BLOCK_PROFILE
+static constexpr uint32_t kDspLiveProfileMs = 3000;
+static uint32_t liveDspProfileNextMs = 0;
+static void RunLiveDspProfileReport(uint32_t nowMs)
+{
+    if(!kEnableStartLog)          return;
+    if(startupStressReportActive) return;  /* no pisar el stress de arranque */
+    if((int32_t)(nowMs - liveDspProfileNextMs) < 0) return;
+    liveDspProfileNextMs = nowMs + kDspLiveProfileMs;
+    PrintDspProfileReport(nowMs, "live");
+}
+#else
+static inline void RunLiveDspProfileReport(uint32_t) {}
+#endif
+
 static void SilenceVoicesInPadRange(uint8_t startPad, uint8_t endPad)
 {
     if(endPad > MAX_PADS)
@@ -4459,7 +4480,7 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
 
         if ((synthActiveMask & (1 << SYNTH_ENGINE_808)) && synth808.ActiveCount() > 0){
             DSP_PROF_SCOPE(SYNTH_808);
-            float s = sanitizeF(synth808.Process());
+            float s = sanitizeF(synth808.Process()) * kDrumBusHeadroom;
             DSP_PROF_END(SYNTH_808);
             DSP_PROF_SCOPE(SYNTH_ROUTING);
             synthTobus(s, engTrk[SYNTH_ENGINE_808]);
@@ -4467,7 +4488,7 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         }
         if ((synthActiveMask & (1 << SYNTH_ENGINE_909)) && synth909.ActiveCount() > 0){
             DSP_PROF_SCOPE(SYNTH_909);
-            float s = sanitizeF(synth909.Process());
+            float s = sanitizeF(synth909.Process()) * kDrumBusHeadroom;
             DSP_PROF_END(SYNTH_909);
             DSP_PROF_SCOPE(SYNTH_ROUTING);
             synthTobus(s, engTrk[SYNTH_ENGINE_909]);
@@ -4475,7 +4496,7 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         }
         if (kEnableSynth505 && (synthActiveMask & (1 << SYNTH_ENGINE_505)) && synth505.ActiveCount() > 0){
             DSP_PROF_SCOPE(SYNTH_505);
-            float s = sanitizeF(synth505.Process());
+            float s = sanitizeF(synth505.Process()) * kDrumBusHeadroom;
             DSP_PROF_END(SYNTH_505);
             DSP_PROF_SCOPE(SYNTH_ROUTING);
             synthTobus(s, engTrk[SYNTH_ENGINE_505]);
@@ -6404,6 +6425,11 @@ static void ProcessCommand()
             float val; memcpy(&val, p + 3, 4);
             /* paramId: 0=decay, 1=pitch, 2=tone, 3=volume, 4=snappy */
             switch(engine){
+                /* El byte 'instrument' de CMD_SYNTH_PARAM YA llega como id nativo
+                 * del enum: la UI web lo remapea con padToInstrument() antes de
+                 * enviarlo. Por eso aqui se pasa DIRECTO, sin volver a remapear.
+                 * (CMD_SYNTH_TRIGGER si remapea con padTo*, porque alli el byte
+                 *  llega como indice de pad.) */
                 case SYNTH_ENGINE_808:
                 case SYNTH_ENGINE_909:
                 case SYNTH_ENGINE_505:
@@ -8330,6 +8356,7 @@ int main()
         RunStartup808SelfTest(now);
         RunStartupStressReport(now);
         RunPerformanceStressMode(now);
+        RunLiveDspProfileReport(now);
         if(kStartupToneTest)
             hw.SetLed(((now / 125u) & 1u) != 0u);
         else

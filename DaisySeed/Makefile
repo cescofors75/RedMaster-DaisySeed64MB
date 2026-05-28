@@ -49,6 +49,7 @@ C_DEFS += -DRED808_STARTUP_STRESS_SECONDS=$(RED808_STARTUP_STRESS_SECONDS)
 C_DEFS += -DRED808_DSP_BLOCK_PROFILE=$(RED808_DSP_BLOCK_PROFILE)
 C_DEFS += -DRED808_MEM_AUDIT=$(RED808_MEM_AUDIT)
 
+
 # ── Boot desde SRAM (requiere Daisy Bootloader) ──
 # El STM32H750 solo tiene 128K flash interna, insuficiente.
 # BOOT_SRAM: bootloader copia app de QSPI→SRAM (480K disponibles)

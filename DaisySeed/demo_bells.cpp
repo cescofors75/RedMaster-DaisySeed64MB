@@ -379,8 +379,6 @@ static float masterGain = 1.0f;
 /* Objetivos de reverb/delay (lerp en el callback) */
 static float revFb    = 0.80f;
 static float revFbTgt = 0.80f;
-static float dlyFb    = 0.45f;
-static float dlyFbTgt = 0.45f;
 
 /* ── Estado de transición ─────────────────────────────────────────
  *  transOut:    0→1 durante los últimos transOutBars de la sección.

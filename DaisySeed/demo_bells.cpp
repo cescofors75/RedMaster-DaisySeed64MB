@@ -23,6 +23,8 @@
  * ═══════════════════════════════════════════════════════════════════ */
 
 #include "daisy_seed.h"
+#include <math.h>
+#include <stdint.h>
 
 /* ── Fast math: sinf parabólico + expf bit-trick (solo para synth) ── */
 static inline float __fast_sinf(float x) {
@@ -198,6 +200,16 @@ void AudioCallback(AudioHandle::InputBuffer,
  * ───────────────────────────────────────────────────────────────── */
 int main()
 {
+    /* ── FPU Flush-to-Zero + Default-NaN (igual que main.cpp) ──
+     *  Evita que los denormales del DSP (envelopes decayendo a 0,
+     *  colas de SVF) disparen el slow-path del FPU en el Cortex-M7
+     *  y sobrecarguen el AudioCallback. */
+    __asm volatile("VMRS r0, FPSCR\n"
+                   "ORR  r0, r0, #(1<<24)|(1<<25)\n"  /* FZ=1, DN=1 */
+                   "VMSR FPSCR, r0" ::: "r0");
+    /* FPDSCR: FPSCR por defecto para TODOS los contextos de ISR (AudioCallback) */
+    *(volatile uint32_t*)0xE000EF3Cu |= (1u << 24) | (1u << 25);
+
     hw.Init();
 
     /* ── Blink de arranque: 5 destellos rápidos confirman que el firmware corre ── */

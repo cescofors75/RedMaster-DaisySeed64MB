@@ -5,6 +5,8 @@ param(
     [switch]$Clean,
     [switch]$VerboseBuild,
     [switch]$StressReport,
+    [switch]$Demo,
+    [switch]$SineTest,
     [int]$StressSeconds = 18
 )
 
@@ -90,6 +92,8 @@ try {
 
     $makeArgs = @()
     if($VerboseBuild) { $makeArgs += 'VERBOSE=1' }
+    if($Demo)     { $makeArgs += 'DEMO_BELLS=1' }
+    if($SineTest) { $makeArgs += 'DEMO_BELLS=1'; $makeArgs += 'SINE_TEST=1' }
     if($StressReport) {
         $makeArgs += 'RED808_STARTUP_STRESS_REPORT=1'
         $makeArgs += "RED808_STARTUP_STRESS_SECONDS=$StressSeconds"

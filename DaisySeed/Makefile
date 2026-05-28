@@ -2,10 +2,20 @@
 #  DrumMachine — Daisy Seed Edition
 #  16-Pad Sampler + FX + SPI Slave + Synth Engines (808/909/505/303)
 # ══════════════════════════════════════════════════════════════════
+#
+#  Demo standalone "The Bells" (sin ESP32, sin SD):
+#    make DEMO_BELLS=1
+# ══════════════════════════════════════════════════════════════════
 
-TARGET = DrumMachine
+DEMO_BELLS ?= 0
 
+ifeq ($(DEMO_BELLS),1)
+TARGET      = DemoBells
+CPP_SOURCES = demo_bells.cpp syscalls.cpp
+else
+TARGET      = DrumMachine
 CPP_SOURCES = main.cpp syscalls.cpp
+endif
 
 # Include path for synth headers + DaisySP-LGPL
 C_INCLUDES += -I.

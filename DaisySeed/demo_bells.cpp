@@ -128,17 +128,26 @@ static uint32_t stepCounter = 0;   /* samples dentro del step actual     */
 static int      step16      = 0;   /* 0..15 dentro del compás            */
 static uint32_t barCounter  = 0;   /* compás absoluto                    */
 
-/* ── Motif de las bells (La menor) ── 16 semicorcheas, 0 = silencio ──
- * A5 . E5 . A5 . C6 .  A5 . E5 . G5 . E5 .   (ostinato hipnótico) */
-static const uint8_t kBellMotif[16] = {
-    81, 0, 76, 0,  81, 0, 84, 0,
-    81, 0, 76, 0,  79, 0, 76, 0
-};
+/* ── Motif de las bells (La menor) ── 16 pasos, 0 = silencio ──
+ *  Posiciones según la grilla del patrón:
+ *    Bell ALTA (siempre ON): pasos 0, 3, 5, 8, 11, 13
+ *    Bell BAJA (muted/unmuted por Mills): pasos 0, 6, 11
+ *           paso:  1   e   +   a   2   e   +   a   3   e   +   a   4   e   +   a
+ *           idx:   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15 */
+static const uint8_t kBellHi[16] = {
+    81, 0, 0, 76,  0, 79, 0, 0,  81, 0, 0, 84,  0, 83, 0, 0
+};  /* A5 . . E5 . G5 . . A5 . . C6 . B5 . .   (ostinato hipnótico) */
 
-/* ── Bassline 303 (La menor) ── 16 corcheas, ataque "chuffy" ── */
+static const uint8_t kBellLo[16] = {
+    69, 0, 0, 0,  0, 0, 64, 0,  0, 0, 0, 72,  0, 0, 0, 0
+};  /* A4 . . .  . . E4 .  . . . C5 . . . .    (refuerzo grave)     */
+
+/* ── Bassline 303 (La menor) ── 16 notas steady, ataque "chuffy" ──
+ *  La grilla muestra 16 celdas uniformes → ostinato de semicorcheas
+ *  sobre la tónica (A1), con acento en cada tiempo. */
 static const uint8_t kBassNotes[16] = {
-    33, 33, 45, 33,  33, 33, 40, 33,
-    33, 33, 45, 33,  36, 33, 40, 33
+    33, 33, 33, 33,  33, 33, 33, 33,
+    33, 33, 33, 33,  33, 33, 33, 33
 };
 static const uint8_t kBassAccent[16] = {
     1, 0, 0, 0,  1, 0, 0, 0,
@@ -221,15 +230,18 @@ static void SequencerTick()
     if(curArr.clap && (step16 == 4 || step16 == 12))
         drums.Trigger(TR909::INST_CLAP, 0.85f);
 
-    /* ── BELLS: motif aguda siempre, grave (octava abajo) según arreglo ── */
-    uint8_t bn = kBellMotif[step16];
-    if(bn != 0){
-        if(curArr.bellHi){
-            float vel = ((step16 % 4) == 0) ? 0.9f : 0.6f;
-            BellNoteOn(bn, vel);
+    /* ── BELLS ── alta siempre ON; baja se mutea/desmutea (truco Mills) ── */
+    if(curArr.bellHi){
+        uint8_t hi = kBellHi[step16];
+        if(hi != 0){
+            float vel = ((step16 % 4) == 0) ? 0.9f : 0.65f;
+            BellNoteOn(hi, vel);
         }
-        if(curArr.bellLo && (step16 % 4) == 0)
-            BellNoteOn((uint8_t)(bn - 12), 0.7f);   /* refuerzo grave      */
+    }
+    if(curArr.bellLo){
+        uint8_t lo = kBellLo[step16];
+        if(lo != 0)
+            BellNoteOn(lo, 0.7f);
     }
 
     /* ── BASS 303: 16 corcheas con ataque chuffy ── */

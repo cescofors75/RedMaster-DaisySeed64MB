@@ -1,6 +1,6 @@
 param(
     [switch]$SkipSamples,
-    [switch]$Demo
+    [switch]$DemoBells
 )
 
 $ErrorActionPreference = 'Continue'
@@ -9,12 +9,12 @@ $root   = Join-Path $repoRoot 'DaisySeed'
 $dfu    = 'C:\Espressif\tools\dfu-util\0.11\dfu-util-0.11-win64\dfu-util.exe'
 $boot   = Join-Path $root 'libdaisy\core\dsy_bootloader_v6_4-intdfu-2000ms.bin'
 # Demo "The Bells" → DemoBells.bin (no necesita ESP32 ni WAV samples)
-if($Demo) {
-    $fw         = Join-Path $root 'build\DemoBells.bin'
+if($DemoBells) {
+    $fw          = Join-Path $root 'build\DemoBells.bin'
     $SkipSamples = $true
     Write-Host 'Modo DEMO: flasheando DemoBells.bin (sin WAV samples)' -ForegroundColor Magenta
 } else {
-    $fw     = Join-Path $root 'build\DrumMachine.bin'
+    $fw = Join-Path $root 'build\DrumMachine.bin'
 }
 $wavblob= Join-Path $root 'build\samples.bin'
 $gccBin = 'C:\ST\STM32CubeIDE_2.0.0\STM32CubeIDE\plugins\com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.100.202509120712\tools\bin'

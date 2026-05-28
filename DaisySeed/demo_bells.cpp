@@ -66,8 +66,8 @@ static constexpr size_t AUDIO_BLOCK = 48;
 /* ═══════════════════════════════════════════════════════════════════
  *  MOTORES (en SDRAM — los kits son grandes)
  * ═══════════════════════════════════════════════════════════════════ */
-DSY_SDRAM_BSS static TR909::Kit   drums;
-DSY_SDRAM_BSS static TB303::Synth bass;
+static TR909::Kit   drums;          /* no SDRAM: constructors run before hw.Init() */
+static TB303::Synth bass;
 DSY_SDRAM_BSS static ReverbSc     reverb;
 
 /* Clap delay (enterrado en el mix) — buffer en SDRAM */

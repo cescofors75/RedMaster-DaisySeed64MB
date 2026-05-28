@@ -132,7 +132,32 @@ static void TriggerStep()
 
 /* ─────────────────────────────────────────────────────────────────
  *  AudioCallback
+ *  SINE_TEST=1 → tono 440 Hz puro, sin síntesis (diagnóstico)
  * ───────────────────────────────────────────────────────────────── */
+#if SINE_TEST
+void AudioCallback(AudioHandle::InputBuffer,
+                   AudioHandle::OutputBuffer out,
+                   size_t size)
+{
+    static float sinePhase = 0.0f;
+    static uint32_t blinkAccum = 0u;
+    blinkAccum += (uint32_t)size;
+    if (blinkAccum >= 24000u) {          /* parpadeo cada 0.5s */
+        blinkAccum -= 24000u;
+        static bool ledState = false;
+        ledState = !ledState;
+        hw.SetLed(ledState);
+    }
+    for (size_t i = 0u; i < size; i++) {
+        sinePhase += 440.0f / kSR;
+        if (sinePhase >= 1.0f) sinePhase -= 1.0f;
+        /* sinf estándar — NO fast math — para descartar problemas de DSP */
+        float s = 0.5f * sinf(6.283185307f * sinePhase);
+        out[0][i] = s;
+        out[1][i] = s;
+    }
+}
+#else
 void AudioCallback(AudioHandle::InputBuffer,
                    AudioHandle::OutputBuffer out,
                    size_t size)
@@ -159,16 +184,14 @@ void AudioCallback(AudioHandle::InputBuffer,
         float drm = drum.Process();
         float bel = bellLow.Process() + bellHigh.Process();
 
-        /* Mezcla: batería más alta que las bells para mantener el carácter techno */
         float mix = drm * 0.82f + bel * 0.30f;
-
-        /* Soft clip suave para evitar clipping duro */
         mix = mix > 0.95f ? 0.95f : (mix < -0.95f ? -0.95f : mix);
 
         out[0][i] = mix;
         out[1][i] = mix;
     }
 }
+#endif
 
 /* ─────────────────────────────────────────────────────────────────
  *  main
@@ -176,6 +199,15 @@ void AudioCallback(AudioHandle::InputBuffer,
 int main()
 {
     hw.Init();
+
+    /* ── Blink de arranque: 5 destellos rápidos confirman que el firmware corre ── */
+    for (int i = 0; i < 5; i++) {
+        hw.SetLed(true);
+        System::Delay(80);
+        hw.SetLed(false);
+        System::Delay(80);
+    }
+    System::Delay(300);
 
     /* ── TR-909 Kit ── */
     drum.Init(kSR);

@@ -1,26 +1,36 @@
 /* ═══════════════════════════════════════════════════════════════════
- *  DEMO BELLS — "The Bells" (Jeff Mills) tribute · Daisy Seed standalone
+ *  DEMO BELLS — "RED808 Journey" · Daisy Seed standalone
  * ─────────────────────────────────────────────────────────────────
- *  Recreación del clásico techno de Detroit, mostrando el potencial del
- *  RED808 sin ESP32. Suena solo al arrancar y evoluciona como el track
- *  original: NO hay fills programados — la energía se dirige muteando y
- *  desmuteando bucles (el "truco real" de Mills en la mesa).
+ *  Un viaje de ~10 minutos que recorre estilos reconocibles de la
+ *  música electrónica, mostrando el potencial del RED808 sin ESP32.
+ *  Suena solo al arrancar y evoluciona por SECCIONES; dentro de cada
+ *  sección la energía se dirige con el "truco Mills": muteando y
+ *  desmuteando bucles. NO hay fills aleatorios — todo es groove.
+ *
+ *  Recorrido (loop infinito, ~9-10 min por vuelta):
+ *    1. Detroit intro          (bells hipnóticas, kick que entra)
+ *    2. Detroit groove         (bells + ride + bass)
+ *    3. Breakdown              (sólo bells + reverb gigante)
+ *    4. Acid house             (303 ácido, lead FM pluck)
+ *    5. Acid peak              (303 abierto al máximo)
+ *    6. Deep house             (swing, claps, stabs)
+ *    7. Minimal techno         (hipnótico, sparse, dub delay)
+ *    8. Electro / breakbeat     (kick sincopado, breaks)
+ *    9. Trance melódico         (arpegios FM, reverb enorme)
+ *   10. Buildup                 (snare roll + riser de reverb)
+ *   11. Peak-time drop          (TODO sonando, máxima energía)
+ *   12. Tribal percussion       (toms + perc, groove africano)
+ *   13. Detroit reprise         (vuelta al tema, cierre)
+ *   14. Fade out                (se apaga suave → reinicia)
  *
  *  Motores (todos ya en el repo):
- *    · TR-909 (tr909.h)  → kick distorsionado al máximo, open-hat con
- *                          decay abierto que se derrama, ride en corcheas
- *                          (entra en fade), clap con delay enterrado.
- *    · FM 2-op (fm2op.h) → las bells: ring modulation + detune fino para
- *                          balancear sidebands → timbre metálico. Motif en
- *                          La menor, bell grave que se mutea/desmutea,
- *                          bell aguda siempre encendida.
- *    · TB-303 (tb303.h)  → bassline chuffy en 16 corcheas (entra tarde,
- *                          como en el original ~bar 65).
+ *    · TR-909 (tr909.h)  → kick, snare, claps, hats, ride, toms, perc
+ *    · FM 2-op (fm2op.h) → bells / pluck / lead / stabs (presets)
+ *    · TB-303 (tb303.h)  → bassline + lead ácido
+ *  FX: reverb (DaisySP-LGPL) + delay con feedback, automatizados.
  *
  *  Build:   build_daisy.ps1 -DemoBells   (o make DEMO_BELLS=1)
- *           → build/DemoBells.bin
- *  Flash:   flash_bells.ps1   (o flash_daisy.ps1 -DemoBells)
- *           NO necesita samples.bin (síntesis pura).
+ *  Flash:   flash_bells.ps1   (NO necesita samples — síntesis pura)
  * ═══════════════════════════════════════════════════════════════════ */
 
 #include "daisy_seed.h"
@@ -29,9 +39,7 @@
 #include <math.h>
 
 /* ── Fast math para los motores de síntesis (igual que el firmware
- *    principal): sinf parabólico + expf bit-trick. Solo afecta a los
- *    headers de synth incluidos a continuación. Evita underruns con
- *    6 voces FM + 909 + 303 simultáneos. ── */
+ *    principal): sinf parabólico + expf bit-trick. ── */
 static inline float __fast_sinf(float x) {
     float phase = x * 0.15915494f;
     phase -= (float)(int)(phase);
@@ -64,202 +72,352 @@ static constexpr float  SAMPLE_RATE = 48000.0f;
 static constexpr size_t AUDIO_BLOCK = 48;
 
 /* ═══════════════════════════════════════════════════════════════════
- *  MOTORES (en SDRAM — los kits son grandes)
+ *  MOTORES
+ *    · TR909::Kit y TB303::Synth → SRAM normal (constructores corren
+ *      antes de hw.Init(); en SDRAM darían HardFault).
+ *    · ReverbSc y buffers grandes → SDRAM (constructor trivial).
  * ═══════════════════════════════════════════════════════════════════ */
-static TR909::Kit   drums;          /* no SDRAM: constructors run before hw.Init() */
+static TR909::Kit   drums;
 static TB303::Synth bass;
-DSY_SDRAM_BSS static ReverbSc     reverb;
+DSY_SDRAM_BSS static ReverbSc reverb;
 
-/* Clap delay (enterrado en el mix) — buffer en SDRAM */
-static constexpr size_t CLAP_DLY_SIZE = 24000;   /* 0.5 s @ 48k */
-DSY_SDRAM_BSS static float clapDlyBuf[CLAP_DLY_SIZE];
-static size_t clapDlyWp   = 0;
-static float  clapDlyFb   = 0.45f;
-
-/* ═══════════════════════════════════════════════════════════════════
- *  BELLS — polifonía FM con ring modulation
- * ═══════════════════════════════════════════════════════════════════ */
-static constexpr int NUM_BELLS = 6;
-static FM2Op::Synth bells[NUM_BELLS];
-static uint8_t      bellNext = 0;
-
-/* Preset de campana metálica: dos sines en ring-mod, ratio inarmónico,
- * detune fino para balancear sidebands. Decay largo (la cola se derrama). */
-static void ApplyBellPreset(FM2Op::Synth& v)
-{
-    v.params.algo     = 2;        /* RING MODULATION (C * M)            */
-    v.params.ratio    = 1.41f;    /* √2 → inarmónico → metálico         */
-    v.params.index    = 1.0f;     /* en ring-mod actúa como mezcla mod  */
-    v.params.feedback = 0.0f;
-    v.params.detune   = 4.0f;     /* detune fino → sidebands batiendo   */
-    v.params.velSens  = 0.4f;
-
-    /* Carrier: golpe instantáneo, cola larga de campana */
-    v.params.cAtk = 0.001f;
-    v.params.cDec = 2.6f;
-    v.params.cSus = 0.0f;
-    v.params.cRel = 1.4f;
-
-    /* Modulator: sostiene el timbre metálico durante la cola */
-    v.params.mAtk = 0.001f;
-    v.params.mDec = 2.2f;
-    v.params.mSus = 0.2f;
-    v.params.mRel = 1.0f;
-
-    v.params.volume = 0.55f;
-}
-
-static void BellNoteOn(uint8_t midiNote, float vel)
-{
-    FM2Op::Synth& v = bells[bellNext];
-    ApplyBellPreset(v);
-    v.NoteOn(midiNote, vel);
-    bellNext = (uint8_t)((bellNext + 1) % NUM_BELLS);
-}
+/* Delay estéreo con feedback (eco dub) — buffers en SDRAM */
+static constexpr size_t DLY_SIZE = 28800;   /* 0.6 s @ 48k */
+DSY_SDRAM_BSS static float dlyBufL[DLY_SIZE];
+DSY_SDRAM_BSS static float dlyBufR[DLY_SIZE];
+static size_t dlyWp = 0;
+static float  dlyFb       = 0.45f;   /* feedback actual (lerp)  */
+static float  dlyFbTgt    = 0.45f;   /* objetivo de la sección  */
+static size_t dlyTimeL    = 18000;   /* ~3/8 de nota a 132 bpm  */
+static size_t dlyTimeR    = 24000;   /* tap derecho más largo   */
 
 /* ═══════════════════════════════════════════════════════════════════
- *  SECUENCIADOR  — 16 semicorcheas por compás
+ *  VOCES FM — polifonía con presets conmutables
  * ═══════════════════════════════════════════════════════════════════ */
-static constexpr float BPM  = 132.0f;            /* tempo Mills          */
-static const uint32_t kStepSamples =
-    (uint32_t)(SAMPLE_RATE * 60.0f / BPM / 4.0f); /* semicorchea         */
+static constexpr int NUM_FM = 8;
+static FM2Op::Synth fmv[NUM_FM];
+static uint8_t      fmNext = 0;
 
-static uint32_t stepCounter = 0;   /* samples dentro del step actual     */
-static int      step16      = 0;   /* 0..15 dentro del compás            */
-static uint32_t barCounter  = 0;   /* compás absoluto                    */
-
-/* ── Motif de las bells (La menor) ── 16 pasos, 0 = silencio ──
- *  Posiciones según la grilla del patrón:
- *    Bell ALTA (siempre ON): pasos 0, 3, 5, 8, 11, 13
- *    Bell BAJA (muted/unmuted por Mills): pasos 0, 6, 11
- *           paso:  1   e   +   a   2   e   +   a   3   e   +   a   4   e   +   a
- *           idx:   0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15 */
-static const uint8_t kBellHi[16] = {
-    81, 0, 0, 76,  0, 79, 0, 0,  81, 0, 0, 84,  0, 83, 0, 0
-};  /* A5 . . E5 . G5 . . A5 . . C6 . B5 . .   (ostinato hipnótico) */
-
-static const uint8_t kBellLo[16] = {
-    69, 0, 0, 0,  0, 0, 64, 0,  0, 0, 0, 72,  0, 0, 0, 0
-};  /* A4 . . .  . . E4 .  . . . C5 . . . .    (refuerzo grave)     */
-
-/* ── Bassline 303 (La menor) ── 16 notas steady, ataque "chuffy" ──
- *  La grilla muestra 16 celdas uniformes → ostinato de semicorcheas
- *  sobre la tónica (A1), con acento en cada tiempo. */
-static const uint8_t kBassNotes[16] = {
-    33, 33, 33, 33,  33, 33, 33, 33,
-    33, 33, 33, 33,  33, 33, 33, 33
-};
-static const uint8_t kBassAccent[16] = {
-    1, 0, 0, 0,  1, 0, 0, 0,
-    1, 0, 0, 0,  1, 0, 0, 0
+enum FmPreset : uint8_t {
+    PRE_BELL = 0,   /* campana metálica ring-mod (Detroit)   */
+    PRE_PLUCK,      /* pluck corto (acid lead, deep stabs)   */
+    PRE_LEAD,       /* lead sostenido (trance)               */
+    PRE_MARIMBA,    /* mallet suave (minimal)                */
+    PRE_STAB        /* stab aditivo (house chord)            */
 };
 
-/* ═══════════════════════════════════════════════════════════════════
- *  ARREGLO  — el "truco Mills": todo se controla con mute/unmute.
- *  Devuelve qué elementos suenan en un compás dado. La estructura
- *  hace build-up y luego entra en un loop con variaciones de mute.
- * ═══════════════════════════════════════════════════════════════════ */
-struct Arrangement {
-    bool kick, openHat, ride, clap, bellHi, bellLo, bass;
-};
-
-static Arrangement GetArrangement(uint32_t bar)
+static void ApplyPreset(FM2Op::Synth& v, uint8_t preset)
 {
-    Arrangement a = {false,false,false,false,false,false,false};
-
-    /* Tras el build-up inicial (32 compases), entra en loop de 32 */
-    uint32_t b = (bar < 32) ? bar : (32 + ((bar - 32) % 32));
-
-    /* ── Build-up ── */
-    a.kick    = (b >= 0);
-    a.ride    = (b >= 4);                 /* ride entra en fade            */
-    a.openHat = (b >= 8);
-    a.bellHi  = (b >= 12);                /* bell aguda: a partir de aquí  */
-    a.clap    = (b >= 16);
-    a.bellLo  = (b >= 16);
-    a.bass    = (b >= 24);                /* bassline entra tarde          */
-
-    /* ── Truco Mills: en el loop, la bell grave entra y sale cada 4
-     *    compases; el kick se "abre" quitando hi-hat puntualmente ── */
-    if(bar >= 32){
-        uint32_t loopBar = (bar - 32) % 32;
-        a.bellLo  = (loopBar % 8) < 4;    /* grave aparece/desaparece      */
-        a.openHat = (loopBar % 16) < 12;  /* breakdown de hats             */
-        if((loopBar % 16) >= 12) a.bass = true;  /* bass solo en breakdown */
+    switch(preset){
+        case PRE_BELL:
+            v.params.algo=2; v.params.ratio=1.41f; v.params.index=1.0f;
+            v.params.feedback=0.0f; v.params.detune=4.0f; v.params.velSens=0.4f;
+            v.params.cAtk=0.001f; v.params.cDec=2.6f; v.params.cSus=0.0f; v.params.cRel=1.4f;
+            v.params.mAtk=0.001f; v.params.mDec=2.2f; v.params.mSus=0.2f; v.params.mRel=1.0f;
+            v.params.volume=0.55f;
+            break;
+        case PRE_PLUCK:
+            v.params.algo=0; v.params.ratio=2.0f; v.params.index=4.5f;
+            v.params.feedback=0.1f; v.params.detune=2.0f; v.params.velSens=0.6f;
+            v.params.cAtk=0.001f; v.params.cDec=0.22f; v.params.cSus=0.0f; v.params.cRel=0.12f;
+            v.params.mAtk=0.001f; v.params.mDec=0.12f; v.params.mSus=0.0f; v.params.mRel=0.08f;
+            v.params.volume=0.5f;
+            break;
+        case PRE_LEAD:
+            v.params.algo=0; v.params.ratio=1.0f; v.params.index=2.6f;
+            v.params.feedback=0.15f; v.params.detune=6.0f; v.params.velSens=0.5f;
+            v.params.cAtk=0.012f; v.params.cDec=0.4f; v.params.cSus=0.7f; v.params.cRel=0.4f;
+            v.params.mAtk=0.02f;  v.params.mDec=0.5f; v.params.mSus=0.5f; v.params.mRel=0.3f;
+            v.params.volume=0.42f;
+            break;
+        case PRE_MARIMBA:
+            v.params.algo=0; v.params.ratio=1.0f; v.params.index=2.0f;
+            v.params.feedback=0.0f; v.params.detune=0.0f; v.params.velSens=0.5f;
+            v.params.cAtk=0.001f; v.params.cDec=0.5f; v.params.cSus=0.0f; v.params.cRel=0.25f;
+            v.params.mAtk=0.001f; v.params.mDec=0.18f; v.params.mSus=0.0f; v.params.mRel=0.1f;
+            v.params.volume=0.5f;
+            break;
+        case PRE_STAB:
+            v.params.algo=1; v.params.ratio=1.0f; v.params.index=3.0f;
+            v.params.feedback=0.0f; v.params.detune=8.0f; v.params.velSens=0.4f;
+            v.params.cAtk=0.004f; v.params.cDec=0.3f; v.params.cSus=0.0f; v.params.cRel=0.2f;
+            v.params.mAtk=0.004f; v.params.mDec=0.25f; v.params.mSus=0.0f; v.params.mRel=0.15f;
+            v.params.volume=0.45f;
+            break;
     }
-    return a;
 }
 
-static Arrangement curArr = {true,false,false,false,false,false,false};
-static float ledLevel = 0.0f;
+static void FmNoteOn(uint8_t midiNote, float vel, uint8_t preset)
+{
+    FM2Op::Synth& v = fmv[fmNext];
+    ApplyPreset(v, preset);
+    v.NoteOn(midiNote, vel);
+    fmNext = (uint8_t)((fmNext + 1) % NUM_FM);
+}
 
-/* Ride fade-in: gana volumen durante los primeros compases tras entrar */
-static float rideGain = 0.0f;
+/* ═══════════════════════════════════════════════════════════════════
+ *  BANCO DE PATRONES DE BATERÍA (bitmask de 16 pasos; bit i = paso i)
+ * ═══════════════════════════════════════════════════════════════════ */
+/* kick */
+static const uint16_t KICK_FOUR    = 0x1111; /* 0,4,8,12         */
+static const uint16_t KICK_HOUSE   = 0x1111;
+static const uint16_t KICK_ELECTRO = (1<<0)|(1<<3)|(1<<6)|(1<<10)|(1<<13);
+static const uint16_t KICK_BREAK   = (1<<0)|(1<<6)|(1<<10);
+static const uint16_t KICK_ROLL    = (1<<0)|(1<<4)|(1<<8)|(1<<10)|(1<<12)|(1<<14);
+static const uint16_t KICK_NONE    = 0x0000;
+/* snare / clap (backbeat 4 y 12) */
+static const uint16_t SNR_BACK     = (1<<4)|(1<<12);
+static const uint16_t SNR_GHOST    = (1<<4)|(1<<12)|(1<<7)|(1<<15);
+static const uint16_t SNR_NONE     = 0x0000;
+/* hihat cerrado */
+static const uint16_t HHC_8TH      = 0x5555;            /* pares     */
+static const uint16_t HHC_16TH     = 0xFFFF;            /* todos     */
+static const uint16_t HHC_OFF      = (1<<2)|(1<<6)|(1<<10)|(1<<14);
+static const uint16_t HHC_SHUF     = (1<<0)|(1<<3)|(1<<4)|(1<<7)|(1<<8)|(1<<11)|(1<<12)|(1<<15);
+static const uint16_t HHC_NONE     = 0x0000;
+/* hihat abierto (offbeats) */
+static const uint16_t HHO_OFF      = (1<<2)|(1<<6)|(1<<10)|(1<<14);
+static const uint16_t HHO_NONE     = 0x0000;
+/* ride (corcheas) */
+static const uint16_t RIDE_8TH     = 0x5555;
+static const uint16_t RIDE_NONE    = 0x0000;
+
+static inline bool Hit(uint16_t pat, int step) { return (pat >> step) & 1; }
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  BANCO DE BAJOS (16 pasos: nota MIDI, 0=silencio; acento; slide)
+ * ═══════════════════════════════════════════════════════════════════ */
+struct BassPat { uint8_t note[16]; uint8_t acc[16]; uint8_t slide[16]; };
+
+static const BassPat BASS_BANK[] = {
+    /* 0: steady A1 — ostinato de semicorcheas (Detroit) */
+    { {33,33,33,33,33,33,33,33,33,33,33,33,33,33,33,33},
+      { 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0},
+      { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
+    /* 1: acid wormy — saltos + slides (acid house) */
+    { {33, 0,33,36, 0,33, 0,40,33, 0,33,45, 0,33,36, 0},
+      { 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0},
+      { 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0} },
+    /* 2: deep house bouncy — con octavas */
+    { {33, 0, 0,33, 0, 0,33, 0,45, 0, 0,45, 0, 0,40, 0},
+      { 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0},
+      { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
+    /* 3: minimal — muy escaso */
+    { {33, 0, 0, 0, 0, 0,33, 0, 0, 0, 0, 0,33, 0,36, 0},
+      { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0},
+      { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
+    /* 4: offbeat — bajo en las corcheas "and" (house clásico) */
+    { { 0,33, 0,33, 0,33, 0,33, 0,33, 0,33, 0,33, 0,33},
+      { 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0},
+      { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
+    /* 5: rolling octaves — peak time energético */
+    { {33,33,45,33,33,33,45,33,33,33,45,33,40,40,45,40},
+      { 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0},
+      { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1} },
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  BANCO DE MELODÍAS FM (16 pasos: dos voces hi/lo, 0=silencio)
+ * ═══════════════════════════════════════════════════════════════════ */
+struct Melody { uint8_t hi[16]; uint8_t lo[16]; };
+
+static const Melody MEL_BANK[] = {
+    /* 0: Detroit bells — el motif hipnótico (La menor) */
+    { {81, 0, 0,76, 0,79, 0, 0,81, 0, 0,84, 0,83, 0, 0},
+      {69, 0, 0, 0, 0, 0,64, 0, 0, 0, 0,72, 0, 0, 0, 0} },
+    /* 1: acid lead arp (La menor ascendente/descendente) */
+    { {69, 0,72, 0,76, 0,72, 0,69, 0,76, 0,81, 0,76, 0},
+      { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
+    /* 2: deep house stabs (acordes Am en off) */
+    { {69, 0, 0, 0,72, 0, 0, 0,76, 0, 0, 0,72, 0, 0, 0},
+      {57, 0, 0, 0,60, 0, 0, 0,64, 0, 0, 0,60, 0, 0, 0} },
+    /* 3: minimal pluck ostinato */
+    { {81, 0,81, 0,79, 0,76, 0,81, 0,84, 0,83, 0,79, 0},
+      { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
+    /* 4: trance arp uplifting (semicorcheas continuas) */
+    { {69,72,76,81,84,81,76,72,69,72,76,81,84,88,84,81},
+      { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
+    /* 5: peak melodic riff */
+    { {88, 0,84,86, 0,81, 0,84,88, 0,91, 0,88,84, 0,81},
+      {69, 0, 0, 0,64, 0, 0, 0,69, 0, 0, 0,72, 0, 0, 0} },
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  SECCIONES — la estructura del set (loop infinito)
+ * ═══════════════════════════════════════════════════════════════════ */
+enum SecFlag : uint8_t {
+    FLAG_NONE     = 0,
+    FLAG_BUILDUP  = 1 << 0,   /* snare roll + riser de reverb     */
+    FLAG_CRASH    = 1 << 1,   /* crash al entrar la sección       */
+    FLAG_TOMS     = 1 << 2,   /* añade toms/perc tribales         */
+};
+
+struct Section {
+    uint16_t bars;
+    uint16_t kick, snare, clap, hhc, hho, ride;  /* patrones (bitmask) */
+    int8_t   bassPat;     /* índice BASS_BANK, -1 = sin bajo     */
+    int8_t   melPat;      /* índice MEL_BANK,  -1 = sin melodía  */
+    uint8_t  fmPreset;    /* preset FM para la melodía           */
+    float    bassCutoff;  /* fc del 303                          */
+    float    bassReso;    /* resonancia del 303                  */
+    float    revFb;       /* feedback reverb objetivo            */
+    float    dlyFb;       /* feedback delay objetivo             */
+    uint8_t  swing;       /* muestras de swing (0 = recto)       */
+    uint8_t  flags;
+};
+
+static const Section SECTIONS[] = {
+/*  bars kick         snare      clap       hhc       hho       ride       bass mel pre        cut    res   rev   dly  sw flags */
+  { 16, KICK_NONE,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,   420,0.82f,0.80f,0.45f, 0, FLAG_CRASH },                 /* 1 Detroit intro */
+  { 24, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_OFF,  RIDE_8TH,   0,   0, PRE_BELL,   420,0.82f,0.72f,0.45f, 0, FLAG_NONE  },                 /* 2 Detroit groove */
+  {  8, KICK_NONE,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,   420,0.82f,0.90f,0.55f, 0, FLAG_NONE  },                 /* 3 breakdown */
+  { 32, KICK_FOUR,   SNR_NONE,  SNR_BACK,  HHC_OFF,  HHO_NONE, RIDE_NONE,  1,   1, PRE_PLUCK,  900,0.90f,0.45f,0.40f, 0, FLAG_CRASH },                 /* 4 acid house */
+  { 16, KICK_FOUR,   SNR_NONE,  SNR_BACK,  HHC_16TH, HHO_OFF,  RIDE_NONE,  1,   1, PRE_PLUCK, 1500,0.94f,0.40f,0.50f, 0, FLAG_NONE  },                 /* 5 acid peak */
+  { 24, KICK_HOUSE,  SNR_NONE,  SNR_BACK,  HHC_OFF,  HHO_OFF,  RIDE_NONE,  2,   2, PRE_STAB,   800,0.70f,0.55f,0.45f,18, FLAG_CRASH },                 /* 6 deep house (swing) */
+  { 32, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_OFF,  RIDE_NONE,  3,   3, PRE_MARIMBA,650,0.60f,0.78f,0.62f, 0, FLAG_NONE  },                 /* 7 minimal (dub delay) */
+  { 24, KICK_ELECTRO,SNR_GHOST, SNR_NONE,  HHC_16TH, HHO_NONE, RIDE_NONE,  4,  -1, PRE_PLUCK,  700,0.85f,0.50f,0.40f, 0, FLAG_CRASH },                 /* 8 electro / break */
+  { 40, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_OFF,  HHO_OFF,  RIDE_8TH,  -1,  4, PRE_LEAD,    420,0.82f,0.88f,0.55f, 0, FLAG_NONE  },                 /* 9 trance melódico */
+  {  8, KICK_FOUR,   SNR_BACK,  SNR_NONE,  HHC_16TH, HHO_NONE, RIDE_NONE, -1,  4, PRE_LEAD,    420,0.82f,0.92f,0.55f, 0, FLAG_BUILDUP },               /* 10 buildup */
+  { 40, KICK_FOUR,   SNR_NONE,  SNR_BACK,  HHC_16TH, HHO_OFF,  RIDE_8TH,   5,  5, PRE_BELL,   1100,0.88f,0.65f,0.45f, 0, FLAG_CRASH },                 /* 11 peak drop */
+  { 24, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_OFF,  HHO_NONE, RIDE_NONE,  0,  3, PRE_MARIMBA,500,0.70f,0.60f,0.50f,12, FLAG_TOMS  },                  /* 12 tribal perc (swing) */
+  { 16, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_OFF,  RIDE_8TH,   0,  0, PRE_BELL,    420,0.82f,0.75f,0.45f, 0, FLAG_NONE  },                 /* 13 Detroit reprise */
+  {  8, KICK_NONE,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_NONE, RIDE_NONE, -1,  0, PRE_BELL,    420,0.82f,0.92f,0.60f, 0, FLAG_NONE  },                 /* 14 fade out */
+};
+static constexpr int NUM_SECTIONS = sizeof(SECTIONS)/sizeof(SECTIONS[0]);
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  SECUENCIADOR
+ * ═══════════════════════════════════════════════════════════════════ */
+static constexpr float BPM = 132.0f;
+static const uint32_t kStepSamples =
+    (uint32_t)(SAMPLE_RATE * 60.0f / BPM / 4.0f);   /* semicorchea */
+
+static uint32_t stepCounter = 0;
+static uint32_t curStepLen  = kStepSamples;
+static int      step16      = 0;
+static uint32_t barCounter  = 0;
+
+static int      secIdx  = 0;
+static uint16_t secBar  = 0;     /* compás dentro de la sección actual */
+static Section  cur     = SECTIONS[0];
+
+static float ledLevel = 0.0f;
+static float rideGain = 0.0f;    /* fade-in del ride                   */
+static float masterGain = 1.0f;  /* para fade out de la última sección */
+
+/* Objetivos de FX (lerp suave en el callback) */
+static float revFbTgt = 0.80f;
+static float revFb    = 0.80f;
+
+/* Longitud de step con swing (retrasa la 2ª semicorchea de cada par) */
+static inline uint32_t StepLength(int s)
+{
+    int32_t sw = (int32_t)cur.swing;
+    if(sw == 0) return kStepSamples;
+    if((s & 1) == 0) return kStepSamples + (uint32_t)sw;       /* on-beat: largo  */
+    return (kStepSamples > (uint32_t)sw) ? kStepSamples - sw : 1;/* off-beat: corto */
+}
+
+static void EnterSection()
+{
+    cur      = SECTIONS[secIdx];
+    revFbTgt = cur.revFb;
+    dlyFbTgt = cur.dlyFb;
+    rideGain = 0.0f;   /* el ride vuelve a hacer fade-in */
+
+    /* Aplicar timbre del 303 de la sección */
+    bass.SetCutoff(cur.bassCutoff);
+    bass.SetResonance(cur.bassReso);
+
+    /* Crash de impacto al entrar */
+    if(cur.flags & FLAG_CRASH)
+        drums.Trigger(TR909::INST_CRASH, 0.8f);
+}
 
 static void SequencerTick()
 {
-    /* Al inicio de cada compás, recalcular arreglo y aplicar mutes 909 */
+    /* ── Inicio de compás: ¿cambio de sección? ── */
     if(step16 == 0){
-        curArr = GetArrangement(barCounter);
-
-        drums.SetMute(TR909::INST_KICK,    !curArr.kick);
-        drums.SetMute(TR909::INST_HIHAT_O, !curArr.openHat);
-        drums.SetMute(TR909::INST_RIDE,    !curArr.ride);
-        drums.SetMute(TR909::INST_CLAP,    !curArr.clap);
+        if(secBar >= cur.bars){
+            secIdx = (secIdx + 1) % NUM_SECTIONS;
+            secBar = 0;
+            EnterSection();
+        }
     }
 
-    const float vAcc = 1.0f;
-    const float vReg = 0.7f;
+    const bool buildup = (cur.flags & FLAG_BUILDUP);
+    /* progreso 0..1 dentro de la sección (para rampas) */
+    const float secProg =
+        (cur.bars > 0) ? ((float)secBar + (float)step16/16.0f) / (float)cur.bars
+                       : 0.0f;
 
-    /* ── KICK 4-on-the-floor (distorsionado al máximo) ── */
-    if(curArr.kick && (step16 % 4) == 0)
+    /* ── KICK ── (en buildup el kick se mantiene 4x4) */
+    if(Hit(cur.kick, step16))
         drums.Trigger(TR909::INST_KICK, 1.0f);
 
-    /* ── OPEN HAT en los offbeats (decay abierto → se derrama) ── */
-    if(curArr.openHat && (step16 % 4) == 2)
+    /* ── SNARE ── normal, o roll ascendente en buildup ── */
+    if(buildup){
+        /* roll: cada vez más denso y fuerte conforme avanza la sección */
+        bool roll = (secProg < 0.5f) ? (step16 % 4 == 0)
+                  : (secProg < 0.8f) ? (step16 % 2 == 0)
+                                     : true;
+        if(roll)
+            drums.Trigger(TR909::INST_SNARE, 0.35f + 0.65f * secProg);
+    } else if(Hit(cur.snare, step16)){
+        float v = (step16==4 || step16==12) ? 0.9f : 0.45f; /* ghost suaves */
+        drums.Trigger(TR909::INST_SNARE, v);
+    }
+
+    /* ── CLAP (backbeat, va al delay → enterrado) ── */
+    if(Hit(cur.clap, step16))
+        drums.Trigger(TR909::INST_CLAP, 0.85f);
+
+    /* ── HI-HAT cerrado ── */
+    if(Hit(cur.hhc, step16))
+        drums.Trigger(TR909::INST_HIHAT_C, (step16%2==0)?0.6f:0.4f);
+
+    /* ── HI-HAT abierto (offbeats, decay abierto → se derrama) ── */
+    if(Hit(cur.hho, step16))
         drums.Trigger(TR909::INST_HIHAT_O, 0.7f);
 
-    /* ── RIDE en corcheas, con fade-in ── */
-    if(curArr.ride && (step16 % 2) == 0){
-        rideGain += (1.0f - rideGain) * 0.02f;   /* sube lento → fade     */
+    /* ── RIDE en corcheas con fade-in ── */
+    if(Hit(cur.ride, step16)){
+        rideGain += (1.0f - rideGain) * 0.02f;
         drums.SetVolume(TR909::INST_RIDE, 0.55f * rideGain);
         drums.Trigger(TR909::INST_RIDE, 0.6f);
     }
 
-    /* ── CLAP en el backbeat (2 y 4) → va al delay, enterrado ── */
-    if(curArr.clap && (step16 == 4 || step16 == 12))
-        drums.Trigger(TR909::INST_CLAP, 0.85f);
+    /* ── TOMS / PERC tribales ── */
+    if(cur.flags & FLAG_TOMS){
+        if(step16==2 || step16==11) drums.Trigger(TR909::INST_LOW_TOM, 0.7f);
+        if(step16==6 || step16==14) drums.Trigger(TR909::INST_MID_TOM, 0.6f);
+        if(step16==3 || step16==9 || step16==13) drums.Trigger(TR909::INST_HI_PERC, 0.5f);
+        if(step16==1 || step16==7)  drums.Trigger(TR909::INST_SHAKER, 0.5f);
+    }
 
-    /* ── BELLS ── alta siempre ON; baja se mutea/desmutea (truco Mills) ── */
-    if(curArr.bellHi){
-        uint8_t hi = kBellHi[step16];
-        if(hi != 0){
-            float vel = ((step16 % 4) == 0) ? 0.9f : 0.65f;
-            BellNoteOn(hi, vel);
+    /* ── MELODÍA FM (hi/lo) ── */
+    if(cur.melPat >= 0){
+        const Melody& m = MEL_BANK[cur.melPat];
+        uint8_t hi = m.hi[step16];
+        if(hi){
+            float vel = ((step16 % 4) == 0) ? 0.9f : 0.6f;
+            FmNoteOn(hi, vel, cur.fmPreset);
         }
-    }
-    if(curArr.bellLo){
-        uint8_t lo = kBellLo[step16];
-        if(lo != 0)
-            BellNoteOn(lo, 0.7f);
+        uint8_t lo = m.lo[step16];
+        if(lo)
+            FmNoteOn(lo, 0.65f, cur.fmPreset);
     }
 
-    /* ── BASS 303: 16 corcheas con ataque chuffy ── */
-    if(curArr.bass){
-        uint8_t note = kBassNotes[step16];
-        bool    acc  = kBassAccent[step16] != 0;
-        bool    slide = (step16 % 4) == 3;   /* slides ocasionales         */
-        bass.NoteOn(note, acc, slide);
+    /* ── BASS 303 ── */
+    if(cur.bassPat >= 0){
+        const BassPat& bp = BASS_BANK[cur.bassPat];
+        uint8_t note = bp.note[step16];
+        if(note){
+            bass.NoteOn(note, bp.acc[step16] != 0, bp.slide[step16] != 0);
+        }
     }
 
     ledLevel = (step16 % 4 == 0) ? 1.0f : 0.4f;
-
-    /* Avance del step */
-    step16++;
-    if(step16 >= 16){
-        step16 = 0;
-        barCounter++;
-    }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -269,52 +427,74 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
                    AudioHandle::OutputBuffer out,
                    size_t                    size)
 {
+    /* Lerp suave de FX hacia los objetivos de la sección (por bloque) */
+    revFb += (revFbTgt - revFb) * 0.02f;
+    dlyFb += (dlyFbTgt - dlyFb) * 0.02f;
+    reverb.SetFeedback(revFb);
+
+    /* Fade out suave durante la última sección (fade) */
+    bool fading = (secIdx == NUM_SECTIONS - 1);
+    float gainTgt = fading ? 0.18f : 1.0f;
+    masterGain += (gainTgt - masterGain) * 0.0008f;
+
     for(size_t i = 0; i < size; i++)
     {
-        if(stepCounter == 0) SequencerTick();
+        if(stepCounter == 0){
+            SequencerTick();
+            curStepLen = StepLength(step16);
+        }
         stepCounter++;
-        if(stepCounter >= kStepSamples) stepCounter = 0;
+        if(stepCounter >= curStepLen){
+            stepCounter = 0;
+            step16++;
+            if(step16 >= 16){
+                step16 = 0;
+                barCounter++;
+                secBar++;
+            }
+        }
 
-        /* ── 909 drums (kick lleva su propio drive/limiter interno) ── */
+        /* ── 909 drums ── */
         float drumMix = drums.Process();
 
-        /* ── Delay (lee retrasado, realimenta una fracción). Alimentamos
-         *    una porción del mix de percusión → el clap del backbeat queda
-         *    "enterrado" en ecos, como en el original. ── */
-        float dlyOut = clapDlyBuf[clapDlyWp];
-        /* Inyectamos una porción del mix de percusión (queda "enterrado") */
-        clapDlyBuf[clapDlyWp] = drumMix * 0.18f + dlyOut * clapDlyFb;
-        clapDlyWp = (clapDlyWp + 1) % CLAP_DLY_SIZE;
+        /* ── Delay estéreo con feedback (dub) ── */
+        size_t rpL = (dlyWp + DLY_SIZE - dlyTimeL) % DLY_SIZE;
+        size_t rpR = (dlyWp + DLY_SIZE - dlyTimeR) % DLY_SIZE;
+        float dL = dlyBufL[rpL];
+        float dR = dlyBufR[rpR];
 
-        /* ── Bells (suma de voces) ── */
-        float bellMix = 0.0f;
-        for(int v = 0; v < NUM_BELLS; v++)
-            bellMix += bells[v].Process();
-        bellMix *= 0.5f;
+        /* ── FM voces ── */
+        float fmMix = 0.0f;
+        for(int v = 0; v < NUM_FM; v++)
+            fmMix += fmv[v].Process();
+        fmMix *= 0.45f;
 
         /* ── Bass 303 ── */
         float bassMix = bass.Process() * 0.9f;
 
+        /* Alimentar el delay con percusión + algo de FM (cross-feed L/R) */
+        float dlyInL = drumMix * 0.16f + fmMix * 0.20f;
+        float dlyInR = drumMix * 0.16f + fmMix * 0.20f;
+        dlyBufL[dlyWp] = dlyInL + dR * dlyFb;   /* ping-pong */
+        dlyBufR[dlyWp] = dlyInR + dL * dlyFb;
+        dlyWp = (dlyWp + 1) % DLY_SIZE;
+
         /* ── Mezcla seca ── */
-        float dry = drumMix * 0.9f + bellMix + bassMix + dlyOut * 0.5f;
+        float dryL = drumMix * 0.9f + fmMix + bassMix + dL * 0.5f;
+        float dryR = drumMix * 0.9f + fmMix + bassMix + dR * 0.5f;
 
-        /* ── Reverb estéreo (sobre todo para las bells) ── */
+        /* ── Reverb (sobre todo las FM + colas del delay) ── */
         float wetL, wetR;
-        reverb.Process(bellMix + dlyOut * 0.4f, bellMix + dlyOut * 0.4f,
-                       &wetL, &wetR);
+        reverb.Process(fmMix + dL * 0.4f, fmMix + dR * 0.4f, &wetL, &wetR);
 
-        float outL = dry + wetL * 0.45f;
-        float outR = dry + wetR * 0.45f;
+        float outL = (dryL + wetL * 0.45f) * masterGain;
+        float outR = (dryR + wetR * 0.45f) * masterGain;
 
         /* Soft clip de seguridad */
-        outL = tanhf(outL * 0.7f);
-        outR = tanhf(outR * 0.7f);
-
-        out[0][i] = outL;
-        out[1][i] = outR;
+        out[0][i] = tanhf(outL * 0.7f);
+        out[1][i] = tanhf(outR * 0.7f);
     }
 
-    /* LED al pulso */
     ledLevel *= 0.85f;
     hw.SetLed(ledLevel > 0.2f);
 }
@@ -324,7 +504,7 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
  * ═══════════════════════════════════════════════════════════════════ */
 int main()
 {
-    /* FPU Flush-to-Zero + Default-NaN (evita denormales en la cola reverb) */
+    /* FPU Flush-to-Zero + Default-NaN (evita denormales en la reverb) */
     __asm volatile("VMRS r0, FPSCR\n"
                    "ORR  r0, r0, #(1<<24)|(1<<25)\n"
                    "VMSR FPSCR, r0" ::: "r0");
@@ -336,39 +516,50 @@ int main()
 
     /* ── 909: kit techno, kick distorsionado al máximo ── */
     drums.Init(SAMPLE_RATE);
-    drums.kick.SetDrive(1.0f);        /* clipeo extremo — sonido Mills     */
+    drums.kick.SetDrive(1.0f);
     drums.kick.SetDecay(0.55f);
-    drums.kick.SetCompression(1.0f);  /* exagera el noise floor            */
-    drums.hihatO.SetDecay(1.6f);      /* decay abierto → se derrama        */
+    drums.kick.SetCompression(1.0f);
+    drums.hihatO.SetDecay(1.6f);          /* decay abierto → se derrama */
     drums.SetVolume(TR909::INST_KICK,    1.3f);
+    drums.SetVolume(TR909::INST_SNARE,   0.7f);
+    drums.SetVolume(TR909::INST_HIHAT_C, 0.5f);
     drums.SetVolume(TR909::INST_HIHAT_O, 0.6f);
-    drums.SetVolume(TR909::INST_CLAP,    0.5f);   /* enterrado en el mix    */
+    drums.SetVolume(TR909::INST_CLAP,    0.5f);
+    drums.SetVolume(TR909::INST_RIDE,    0.5f);
+    drums.SetVolume(TR909::INST_LOW_TOM, 0.7f);
+    drums.SetVolume(TR909::INST_MID_TOM, 0.7f);
+    drums.SetVolume(TR909::INST_HI_PERC, 0.5f);
+    drums.SetVolume(TR909::INST_SHAKER,  0.5f);
     drums.SetMasterVolume(0.9f);
 
-    /* ── Bells FM ── */
-    for(int v = 0; v < NUM_BELLS; v++){
-        bells[v].Init(SAMPLE_RATE);
-        ApplyBellPreset(bells[v]);
+    /* ── Voces FM ── */
+    for(int v = 0; v < NUM_FM; v++){
+        fmv[v].Init(SAMPLE_RATE);
+        ApplyPreset(fmv[v], PRE_BELL);
     }
 
-    /* ── 303 bass chuffy ── */
+    /* ── 303 bass ── */
     bass.Init(SAMPLE_RATE);
     bass.SetWaveform(TB303::WAVE_SAW);
     bass.SetCutoff(420.0f);
     bass.SetResonance(0.82f);
     bass.SetEnvMod(0.8f);
-    bass.SetDecay(0.12f);             /* corto → ataque "chuffy"/hi-hat-ish */
+    bass.SetDecay(0.12f);
     bass.SetAccent(0.85f);
     bass.SetOverdrive(0.5f);
     bass.SetVolume(0.8f);
 
-    /* ── Reverb: cola larga, agudos amortiguados ── */
+    /* ── Reverb ── */
     reverb.Init(SAMPLE_RATE);
-    reverb.SetFeedback(0.82f);
+    reverb.SetFeedback(0.80f);
     reverb.SetLpFreq(8500.0f);
 
-    /* Limpiar buffer del delay */
-    for(size_t i = 0; i < CLAP_DLY_SIZE; i++) clapDlyBuf[i] = 0.0f;
+    /* Limpiar buffers de delay */
+    for(size_t i = 0; i < DLY_SIZE; i++){ dlyBufL[i] = 0.0f; dlyBufR[i] = 0.0f; }
+
+    /* Arrancar en la primera sección */
+    secIdx = 0; secBar = 0;
+    EnterSection();
 
     hw.StartAudio(AudioCallback);
 

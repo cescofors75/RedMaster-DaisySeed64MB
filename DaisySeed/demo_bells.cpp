@@ -7,21 +7,25 @@
  *  sección la energía se dirige con el "truco Mills": muteando y
  *  desmuteando bucles. NO hay fills aleatorios — todo es groove.
  *
- *  Recorrido (loop infinito, ~9-10 min por vuelta):
- *    1. Detroit intro          (bells hipnóticas, kick que entra)
- *    2. Detroit groove         (bells + ride + bass)
- *    3. Breakdown              (sólo bells + reverb gigante)
- *    4. Acid house             (303 ácido, lead FM pluck)
- *    5. Acid peak              (303 abierto al máximo)
- *    6. Deep house             (swing, claps, stabs)
- *    7. Minimal techno         (hipnótico, sparse, dub delay)
- *    8. Electro / breakbeat     (kick sincopado, breaks)
- *    9. Trance melódico         (arpegios FM, reverb enorme)
- *   10. Buildup                 (snare roll + riser de reverb)
- *   11. Peak-time drop          (TODO sonando, máxima energía)
- *   12. Tribal percussion       (toms + perc, groove africano)
- *   13. Detroit reprise         (vuelta al tema, cierre)
- *   14. Fade out                (se apaga suave → reinicia)
+ *  Recorrido (loop infinito, ~11-12 min por vuelta):
+ *    1.  Detroit intro          (bells hipnóticas, kick que entra)
+ *    2.  Detroit groove         (bells + ride + bass)
+ *    3.  Breakdown              (sólo bells + reverb gigante)
+ *    4.  Acid house             (303 ácido, lead FM pluck)
+ *    5.  Acid peak              (303 abierto al máximo)
+ *    6.  UK garage / 2-step     (Fred again.. : shuffle, EP cálido)
+ *    7.  Organic house emotivo  (acordes Rhodes, sub redondo)
+ *    8.  Deep house             (swing, claps, stabs)
+ *    9.  Funky electro          (kick sincopado, slap bass, rimshots)
+ *   10.  Minimal techno         (hipnótico, sparse, dub delay)
+ *   11.  Electro / breakbeat    (kick sincopado, breaks)
+ *   12.  Trance melódico        (arpegios FM, reverb enorme)
+ *   13.  Tribal percussion      (toms + perc, groove)
+ *   14.  Buildup                (snare roll + riser de reverb)
+ *   15.  Peak-time drop         (todo sonando, máxima energía)
+ *   16.  FINAL buildup          (riser supersaw + snare roll)
+ *   17.  FINAL DROP explosivo   (crash por compás, sub 16th, anthem)
+ *   18.  Reset                  (silencio breve → vuelve al intro)
  *
  *  Motores (todos ya en el repo):
  *    · TR-909 (tr909.h)  → kick, snare, claps, hats, ride, toms, perc
@@ -103,7 +107,9 @@ enum FmPreset : uint8_t {
     PRE_PLUCK,      /* pluck corto (acid lead, deep stabs)   */
     PRE_LEAD,       /* lead sostenido (trance)               */
     PRE_MARIMBA,    /* mallet suave (minimal)                */
-    PRE_STAB        /* stab aditivo (house chord)            */
+    PRE_STAB,       /* stab aditivo (house chord)            */
+    PRE_KEYS,       /* electric-piano cálido (organic/Fred)  */
+    PRE_SUPER       /* supersaw-ish brillante (final épico)  */
 };
 
 static void ApplyPreset(FM2Op::Synth& v, uint8_t preset)
@@ -144,6 +150,20 @@ static void ApplyPreset(FM2Op::Synth& v, uint8_t preset)
             v.params.mAtk=0.004f; v.params.mDec=0.25f; v.params.mSus=0.0f; v.params.mRel=0.15f;
             v.params.volume=0.45f;
             break;
+        case PRE_KEYS:   /* Rhodes/EP cálido: ratio 1, index suave, decay medio */
+            v.params.algo=0; v.params.ratio=1.0f; v.params.index=1.6f;
+            v.params.feedback=0.05f; v.params.detune=3.0f; v.params.velSens=0.7f;
+            v.params.cAtk=0.003f; v.params.cDec=0.9f; v.params.cSus=0.25f; v.params.cRel=0.5f;
+            v.params.mAtk=0.003f; v.params.mDec=0.5f; v.params.mSus=0.1f; v.params.mRel=0.3f;
+            v.params.volume=0.5f;
+            break;
+        case PRE_SUPER:  /* brillante y ancho para el clímax */
+            v.params.algo=1; v.params.ratio=2.0f; v.params.index=4.0f;
+            v.params.feedback=0.2f; v.params.detune=12.0f; v.params.velSens=0.5f;
+            v.params.cAtk=0.006f; v.params.cDec=0.6f; v.params.cSus=0.6f; v.params.cRel=0.45f;
+            v.params.mAtk=0.006f; v.params.mDec=0.4f; v.params.mSus=0.4f; v.params.mRel=0.3f;
+            v.params.volume=0.5f;
+            break;
     }
 }
 
@@ -164,22 +184,28 @@ static const uint16_t KICK_HOUSE   = 0x1111;
 static const uint16_t KICK_ELECTRO = (1<<0)|(1<<3)|(1<<6)|(1<<10)|(1<<13);
 static const uint16_t KICK_BREAK   = (1<<0)|(1<<6)|(1<<10);
 static const uint16_t KICK_ROLL    = (1<<0)|(1<<4)|(1<<8)|(1<<10)|(1<<12)|(1<<14);
+static const uint16_t KICK_2STEP   = (1<<0)|(1<<6)|(1<<10);             /* UK garage / Fred again */
+static const uint16_t KICK_FUNK    = (1<<0)|(1<<4)|(1<<7)|(1<<10)|(1<<12);/* síncopa funky */
+static const uint16_t KICK_GALLOP  = (1<<0)|(1<<3)|(1<<4)|(1<<8)|(1<<11)|(1<<12); /* peak rodante */
 static const uint16_t KICK_NONE    = 0x0000;
 /* snare / clap (backbeat 4 y 12) */
 static const uint16_t SNR_BACK     = (1<<4)|(1<<12);
 static const uint16_t SNR_GHOST    = (1<<4)|(1<<12)|(1<<7)|(1<<15);
+static const uint16_t SNR_2STEP    = (1<<4)|(1<<12)|(1<<14);            /* clap+rim shuffle 2-step */
 static const uint16_t SNR_NONE     = 0x0000;
 /* hihat cerrado */
 static const uint16_t HHC_8TH      = 0x5555;            /* pares     */
 static const uint16_t HHC_16TH     = 0xFFFF;            /* todos     */
 static const uint16_t HHC_OFF      = (1<<2)|(1<<6)|(1<<10)|(1<<14);
 static const uint16_t HHC_SHUF     = (1<<0)|(1<<3)|(1<<4)|(1<<7)|(1<<8)|(1<<11)|(1<<12)|(1<<15);
+static const uint16_t HHC_GARAGE   = (1<<2)|(1<<3)|(1<<6)|(1<<7)|(1<<10)|(1<<11)|(1<<14)|(1<<15); /* dobles tipo skippy */
 static const uint16_t HHC_NONE     = 0x0000;
 /* hihat abierto (offbeats) */
 static const uint16_t HHO_OFF      = (1<<2)|(1<<6)|(1<<10)|(1<<14);
 static const uint16_t HHO_NONE     = 0x0000;
 /* ride (corcheas) */
 static const uint16_t RIDE_8TH     = 0x5555;
+static const uint16_t RIDE_16TH    = 0xFFFF;
 static const uint16_t RIDE_NONE    = 0x0000;
 
 static inline bool Hit(uint16_t pat, int step) { return (pat >> step) & 1; }
@@ -214,6 +240,18 @@ static const BassPat BASS_BANK[] = {
     { {33,33,45,33,33,33,45,33,33,33,45,33,40,40,45,40},
       { 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0},
       { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1} },
+    /* 6: 2-step garage sub — síncopa Fred again, redondo y cálido */
+    { { 0, 0,33, 0, 0,36, 0, 0,33, 0, 0, 0,40, 0,36, 0},
+      { 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0},
+      { 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0} },
+    /* 7: funky slap — pops sincopados con slides (raíces electro-funk) */
+    { {33, 0,40,33, 0,45, 0,40,33, 0,33,40, 0,45,43, 0},
+      { 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0},
+      { 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0} },
+    /* 8: driving 16th — final explosivo, sub martillado */
+    { {33,33,33,40,33,33,33,40,33,33,33,40,45,45,40,45},
+      { 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0},
+      { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -240,6 +278,15 @@ static const Melody MEL_BANK[] = {
     /* 5: peak melodic riff */
     { {88, 0,84,86, 0,81, 0,84,88, 0,91, 0,88,84, 0,81},
       {69, 0, 0, 0,64, 0, 0, 0,69, 0, 0, 0,72, 0, 0, 0} },
+    /* 6: organic-house chord stabs (Fred again) — acordes emotivos en off */
+    { { 0, 0,72, 0, 0, 0,76, 0, 0,74, 0, 0, 0,72, 0, 0},
+      { 0, 0,64, 0, 0, 0,67, 0, 0,65, 0, 0, 0,64, 0, 0} },
+    /* 7: chopped vocal-ish hook — notas cortas sincopadas (2-step) */
+    { {84, 0, 0,86,84, 0,79, 0, 0,81, 0,84, 0, 0,79, 0},
+      { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
+    /* 8: euphoric anthem lead — final explosivo, melodía que sube */
+    { {81,84,88,84,86,88,91,88,84,88,91,93,88,91,96,93},
+      {69, 0,72, 0,76, 0,72, 0,69, 0,76, 0,81, 0,84, 0} },
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -250,6 +297,8 @@ enum SecFlag : uint8_t {
     FLAG_BUILDUP  = 1 << 0,   /* snare roll + riser de reverb     */
     FLAG_CRASH    = 1 << 1,   /* crash al entrar la sección       */
     FLAG_TOMS     = 1 << 2,   /* añade toms/perc tribales         */
+    FLAG_FINALE   = 1 << 3,   /* clímax: crash por compás + extra perc */
+    FLAG_FUNK     = 1 << 4,   /* acentos funky: clap+rim ghost notes   */
 };
 
 struct Section {
@@ -267,21 +316,25 @@ struct Section {
 };
 
 static const Section SECTIONS[] = {
-/*  bars kick         snare      clap       hhc       hho       ride       bass mel pre        cut    res   rev   dly  sw flags */
-  { 16, KICK_NONE,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,   420,0.82f,0.80f,0.45f, 0, FLAG_CRASH },                 /* 1 Detroit intro */
-  { 24, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_OFF,  RIDE_8TH,   0,   0, PRE_BELL,   420,0.82f,0.72f,0.45f, 0, FLAG_NONE  },                 /* 2 Detroit groove */
-  {  8, KICK_NONE,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,   420,0.82f,0.90f,0.55f, 0, FLAG_NONE  },                 /* 3 breakdown */
-  { 32, KICK_FOUR,   SNR_NONE,  SNR_BACK,  HHC_OFF,  HHO_NONE, RIDE_NONE,  1,   1, PRE_PLUCK,  900,0.90f,0.45f,0.40f, 0, FLAG_CRASH },                 /* 4 acid house */
-  { 16, KICK_FOUR,   SNR_NONE,  SNR_BACK,  HHC_16TH, HHO_OFF,  RIDE_NONE,  1,   1, PRE_PLUCK, 1500,0.94f,0.40f,0.50f, 0, FLAG_NONE  },                 /* 5 acid peak */
-  { 24, KICK_HOUSE,  SNR_NONE,  SNR_BACK,  HHC_OFF,  HHO_OFF,  RIDE_NONE,  2,   2, PRE_STAB,   800,0.70f,0.55f,0.45f,18, FLAG_CRASH },                 /* 6 deep house (swing) */
-  { 32, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_OFF,  RIDE_NONE,  3,   3, PRE_MARIMBA,650,0.60f,0.78f,0.62f, 0, FLAG_NONE  },                 /* 7 minimal (dub delay) */
-  { 24, KICK_ELECTRO,SNR_GHOST, SNR_NONE,  HHC_16TH, HHO_NONE, RIDE_NONE,  4,  -1, PRE_PLUCK,  700,0.85f,0.50f,0.40f, 0, FLAG_CRASH },                 /* 8 electro / break */
-  { 40, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_OFF,  HHO_OFF,  RIDE_8TH,  -1,  4, PRE_LEAD,    420,0.82f,0.88f,0.55f, 0, FLAG_NONE  },                 /* 9 trance melódico */
-  {  8, KICK_FOUR,   SNR_BACK,  SNR_NONE,  HHC_16TH, HHO_NONE, RIDE_NONE, -1,  4, PRE_LEAD,    420,0.82f,0.92f,0.55f, 0, FLAG_BUILDUP },               /* 10 buildup */
-  { 40, KICK_FOUR,   SNR_NONE,  SNR_BACK,  HHC_16TH, HHO_OFF,  RIDE_8TH,   5,  5, PRE_BELL,   1100,0.88f,0.65f,0.45f, 0, FLAG_CRASH },                 /* 11 peak drop */
-  { 24, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_OFF,  HHO_NONE, RIDE_NONE,  0,  3, PRE_MARIMBA,500,0.70f,0.60f,0.50f,12, FLAG_TOMS  },                  /* 12 tribal perc (swing) */
-  { 16, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_OFF,  RIDE_8TH,   0,  0, PRE_BELL,    420,0.82f,0.75f,0.45f, 0, FLAG_NONE  },                 /* 13 Detroit reprise */
-  {  8, KICK_NONE,   SNR_NONE,  SNR_NONE,  HHC_NONE, HHO_NONE, RIDE_NONE, -1,  0, PRE_BELL,    420,0.82f,0.92f,0.60f, 0, FLAG_NONE  },                 /* 14 fade out */
+/*  bars kick         snare      clap       hhc        hho       ride       bass mel pre        cut    res   rev   dly  sw flags */
+  { 16, KICK_NONE,   SNR_NONE,  SNR_NONE,  HHC_NONE,  HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,   420,0.82f,0.80f,0.45f, 0, FLAG_CRASH },                 /* 1  Detroit intro */
+  { 24, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_NONE,  HHO_OFF,  RIDE_8TH,   0,   0, PRE_BELL,   420,0.82f,0.72f,0.45f, 0, FLAG_NONE  },                 /* 2  Detroit groove */
+  {  8, KICK_NONE,   SNR_NONE,  SNR_NONE,  HHC_NONE,  HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,   420,0.82f,0.90f,0.55f, 0, FLAG_NONE  },                 /* 3  breakdown */
+  { 32, KICK_FOUR,   SNR_NONE,  SNR_BACK,  HHC_OFF,   HHO_NONE, RIDE_NONE,  1,   1, PRE_PLUCK,  900,0.90f,0.45f,0.40f, 0, FLAG_CRASH },                 /* 4  acid house */
+  { 16, KICK_FOUR,   SNR_NONE,  SNR_BACK,  HHC_16TH,  HHO_OFF,  RIDE_NONE,  1,   1, PRE_PLUCK, 1500,0.94f,0.40f,0.50f, 0, FLAG_NONE  },                 /* 5  acid peak */
+  { 24, KICK_2STEP,  SNR_2STEP, SNR_NONE,  HHC_GARAGE,HHO_OFF,  RIDE_NONE,  6,   7, PRE_KEYS,   780,0.55f,0.62f,0.55f,22, FLAG_FUNK  },                 /* 6  UK garage 2-step (Fred again) */
+  { 24, KICK_2STEP,  SNR_BACK,  SNR_NONE,  HHC_OFF,   HHO_OFF,  RIDE_NONE,  6,   6, PRE_KEYS,   650,0.55f,0.72f,0.55f,22, FLAG_NONE  },                 /* 7  organic house emotivo */
+  { 24, KICK_HOUSE,  SNR_NONE,  SNR_BACK,  HHC_OFF,   HHO_OFF,  RIDE_NONE,  2,   2, PRE_STAB,   800,0.70f,0.55f,0.45f,18, FLAG_CRASH },                 /* 8  deep house (swing) */
+  { 24, KICK_FUNK,   SNR_GHOST, SNR_NONE,  HHC_GARAGE,HHO_NONE, RIDE_NONE,  7,  -1, PRE_PLUCK,  900,0.80f,0.48f,0.45f,14, FLAG_FUNK  },                 /* 9  funky electro */
+  { 32, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_NONE,  HHO_OFF,  RIDE_NONE,  3,   3, PRE_MARIMBA,650,0.60f,0.78f,0.62f, 0, FLAG_NONE  },                 /* 10 minimal (dub delay) */
+  { 24, KICK_ELECTRO,SNR_GHOST, SNR_NONE,  HHC_16TH,  HHO_NONE, RIDE_NONE,  4,  -1, PRE_PLUCK,  700,0.85f,0.50f,0.40f, 0, FLAG_CRASH },                 /* 11 electro / break */
+  { 40, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_OFF,   HHO_OFF,  RIDE_8TH,  -1,  4, PRE_LEAD,    420,0.82f,0.88f,0.55f, 0, FLAG_NONE  },                 /* 12 trance melódico */
+  { 24, KICK_FOUR,   SNR_NONE,  SNR_NONE,  HHC_OFF,   HHO_NONE, RIDE_NONE,  0,  3, PRE_MARIMBA,500,0.70f,0.60f,0.50f,12, FLAG_TOMS  },                  /* 13 tribal perc (swing) */
+  {  8, KICK_FOUR,   SNR_BACK,  SNR_NONE,  HHC_16TH,  HHO_NONE, RIDE_NONE, -1,  4, PRE_LEAD,    420,0.82f,0.92f,0.55f, 0, FLAG_BUILDUP },               /* 14 buildup */
+  { 32, KICK_FOUR,   SNR_NONE,  SNR_BACK,  HHC_16TH,  HHO_OFF,  RIDE_8TH,   5,  5, PRE_BELL,   1100,0.88f,0.65f,0.45f, 0, FLAG_CRASH },                 /* 15 peak drop */
+  {  8, KICK_GALLOP, SNR_BACK,  SNR_BACK,  HHC_16TH,  HHO_NONE, RIDE_16TH, -1,  8, PRE_SUPER,  1400,0.85f,0.95f,0.55f, 0, FLAG_BUILDUP },               /* 16 FINAL buildup (riser) */
+  { 48, KICK_GALLOP, SNR_NONE,  SNR_BACK,  HHC_16TH,  HHO_OFF,  RIDE_16TH,  8,  8, PRE_SUPER,  1600,0.88f,0.70f,0.50f, 0, FLAG_FINALE|FLAG_FUNK },     /* 17 FINAL DROP explosivo */
+  {  8, KICK_NONE,   SNR_NONE,  SNR_NONE,  HHC_NONE,  HHO_NONE, RIDE_NONE, -1,  0, PRE_BELL,    420,0.82f,0.88f,0.55f, 0, FLAG_NONE  },                 /* 18 reset → vuelve al intro */
 };
 static constexpr int NUM_SECTIONS = sizeof(SECTIONS)/sizeof(SECTIONS[0]);
 
@@ -395,6 +448,19 @@ static void SequencerTick()
         if(step16==1 || step16==7)  drums.Trigger(TR909::INST_SHAKER, 0.5f);
     }
 
+    /* ── FUNK: rimshot + clave en las síncopas (toque electro-funk sutil) ── */
+    if(cur.flags & FLAG_FUNK){
+        if(step16==3 || step16==7 || step16==11) drums.Trigger(TR909::INST_RIMSHOT, 0.45f);
+        if(step16==6 || step16==14)              drums.Trigger(TR909::INST_HI_PERC, 0.4f);
+    }
+
+    /* ── FINALE: clímax — crash al inicio de cada compás + perc rodante ── */
+    if(cur.flags & FLAG_FINALE){
+        if(step16==0)               drums.Trigger(TR909::INST_CRASH, 0.55f);
+        if((step16 & 1) == 0)       drums.Trigger(TR909::INST_SHAKER, 0.4f);
+        if(step16==2 || step16==10) drums.Trigger(TR909::INST_LOW_TOM, 0.6f);
+    }
+
     /* ── MELODÍA FM (hi/lo) ── */
     if(cur.melPat >= 0){
         const Melody& m = MEL_BANK[cur.melPat];
@@ -432,10 +498,9 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
     dlyFb += (dlyFbTgt - dlyFb) * 0.02f;
     reverb.SetFeedback(revFb);
 
-    /* Fade out suave durante la última sección (fade) */
-    bool fading = (secIdx == NUM_SECTIONS - 1);
-    float gainTgt = fading ? 0.18f : 1.0f;
-    masterGain += (gainTgt - masterGain) * 0.0008f;
+    /* Empuje de ganancia en el clímax (el resto a 1.0; el tanh limita) */
+    float gainTgt = (cur.flags & FLAG_FINALE) ? 1.15f : 1.0f;
+    masterGain += (gainTgt - masterGain) * 0.001f;
 
     for(size_t i = 0; i < size; i++)
     {

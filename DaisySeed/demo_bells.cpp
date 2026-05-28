@@ -357,6 +357,38 @@ static const Section SECTIONS[] = {
 };
 static constexpr int NUM_SECTIONS = (int)(sizeof(SECTIONS)/sizeof(SECTIONS[0]));
 
+/* ── Nombres y "fórmula" de cada sección (para el monitor serial) ── */
+static const char* const SEC_NAME[NUM_SECTIONS] = {
+    "DETROIT INTRO", "DETROIT GROOVE", "BREAKDOWN", "ACID HOUSE",
+    "ACID PEAK", "UK GARAGE 2-STEP", "ORGANIC HOUSE", "DEEP HOUSE",
+    "FUNKY ELECTRO", "MINIMAL TECHNO", "ELECTRO BREAK", "TRANCE MELODICO",
+    "TRIBAL PERC", "BUILDUP", "PEAK DROP", "FINAL BUILDUP",
+    "FINAL DROP", "RESET"
+};
+static const char* const SEC_FX[NUM_SECTIONS] = {
+    "ring-mod bell: y=sin(wc.t)*sin(wm.t), r=1.41",
+    "ring-mod bell + 4x4 kick + ride 8th",
+    "wash: reverb fb->0.95, all dissolves",
+    "acid: ladder LPF, Q=0.90, env->fc",
+    "acid peak: fc=1500Hz, Q=0.94 (self-osc)",
+    "garage: T_odd=T-22smp shuffle, EP keys",
+    "organic: Rhodes algo0 r1.0 idx1.6",
+    "house stab: additive algo1, swing 18smp",
+    "funk: slap bass + rimshot syncopa",
+    "minimal: dub delay fb->0.62, sparse",
+    "electro: kick syncopado, hats 16th",
+    "trance: arp 16th, reverb tail 0.88",
+    "tribal: toms+perc, swing 12smp",
+    "riser: snare roll, density f(progress)",
+    "peak: full mix, sub octaves rolling",
+    "riser: supersaw, reverb fb->0.95",
+    "FINAL: crash/bar, sub 16th, anthem, +15%",
+    "reset -> loop back to intro"
+};
+static const char* const MIX_NAME[5] = {
+    "CUT", "FILTER-SWEEP", "ECHO-OUT", "REVERB-WASH", "STRIP-KICK"
+};
+
 /* ═══════════════════════════════════════════════════════════════════
  *  ESTADO DEL SECUENCIADOR
  * ═══════════════════════════════════════════════════════════════════ */
@@ -379,6 +411,23 @@ static float masterGain = 1.0f;
 /* Objetivos de reverb/delay (lerp en el callback) */
 static float revFb    = 0.80f;
 static float revFbTgt = 0.80f;
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  ESTADO COMPARTIDO PARA EL MONITOR SERIAL
+ *  Escrito desde el audio callback (sólo stores simples), leído desde
+ *  el main loop. PrintLine NO se llama nunca desde el callback.
+ * ═══════════════════════════════════════════════════════════════════ */
+static constexpr bool kMonitor = true;   /* monitor serial USB on/off */
+static volatile bool     monSecChanged = true;
+static volatile int      monSec        = 0;
+static volatile uint32_t monBar        = 0;
+static volatile float    monVU         = 0.0f;  /* pico 0..1            */
+static volatile float    monTransOut   = 0.0f;
+static volatile uint8_t  monMode       = 0;
+static volatile float    monCutoff     = 420.0f;
+static volatile float    monRev        = 0.80f;
+static volatile float    monDly        = 0.45f;
+static float monVuPeak = 0.0f;                   /* acumulador (callback)*/
 
 /* ── Estado de transición ─────────────────────────────────────────
  *  transOut:    0→1 durante los últimos transOutBars de la sección.
@@ -418,6 +467,10 @@ static void EnterSection()
 
     if(cur.flags & FLAG_CRASH)
         drums.Trigger(TR909::INST_CRASH, 0.85f);
+
+    /* Avisar al monitor del cambio de sección */
+    monSec        = secIdx;
+    monSecChanged = true;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -676,12 +729,116 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         float outL = (dryL + wetL * 0.45f) * masterGain;
         float outR = (dryR + wetR * 0.45f) * masterGain;
 
-        out[0][i] = tanhf(outL * 0.7f);
-        out[1][i] = tanhf(outR * 0.7f);
+        float sL = tanhf(outL * 0.7f);
+        float sR = tanhf(outR * 0.7f);
+        out[0][i] = sL;
+        out[1][i] = sR;
+
+        /* Pico para el VU (monitor) */
+        float a = fabsf(sL);
+        if(a > monVuPeak) monVuPeak = a;
     }
+
+    /* Publicar estado para el monitor (sólo stores; sin printf aquí) */
+    monVuPeak  *= 0.6f;          /* decaimiento suave entre bloques */
+    monVU       = monVuPeak;
+    monBar      = (uint32_t)secBar;
+    monTransOut = transOut;
+    monMode     = cur.transMode;
+    monCutoff   = bassCutoffEff;
+    monRev      = revFb;
+    monDly      = dlyFb;
 
     ledLevel *= 0.85f;
     hw.SetLed(ledLevel > 0.2f);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  MONITOR SERIAL — banner por sección + línea viva con VU ASCII
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* Renderiza un patrón de 16 pasos (bitmask) en "X . . X ..." */
+static void RenderPattern(uint16_t pat, char* buf)
+{
+    int p = 0;
+    for(int s = 0; s < 16; s++){
+        buf[p++] = Hit(pat, s) ? 'X' : '.';
+        buf[p++] = ' ';
+        if((s & 3) == 3 && s != 15) buf[p++] = '|', buf[p++] = ' ';
+    }
+    buf[p] = '\0';
+}
+
+/* Barra VU ASCII: nivel 0..1 → "##########----------" (width chars) */
+static void RenderBar(float level, int width, char fill, char* buf)
+{
+    int n = (int)(level * (float)width + 0.5f);
+    if(n < 0) n = 0; if(n > width) n = width;
+    int p = 0;
+    for(int i = 0; i < width; i++) buf[p++] = (i < n) ? fill : '-';
+    buf[p] = '\0';
+}
+
+/* Banner completo al entrar una sección (llamado desde main loop) */
+static void MonitorBanner(int idx)
+{
+    if(!kMonitor) return;
+    const Section& s = SECTIONS[idx];
+    char kp[48], hp[48];
+    RenderPattern(s.kick, kp);
+    RenderPattern(s.hhc,  hp);
+
+    int swMs10 = (int)((float)s.swing / SAMPLE_RATE * 10000.0f); /* ms*10 */
+
+    hw.PrintLine("");
+    hw.PrintLine("+==================================================+");
+    hw.PrintLine("| [%2d/%2d] %-24s %3d bars |", idx + 1, NUM_SECTIONS,
+                 SEC_NAME[idx], (int)s.bars);
+    hw.PrintLine("+==================================================+");
+    hw.PrintLine("  BPM %d   T_step = SR*60/(BPM*4) = %lu smp",
+                 (int)BPM, (unsigned long)kStepSamples);
+    if(s.swing)
+        hw.PrintLine("  swing: T_even=T+%d  T_odd=T-%d smp  (~%d.%dms)",
+                     (int)s.swing, (int)s.swing, swMs10/10, swMs10%10);
+    hw.PrintLine("  kick : %s", kp);
+    hw.PrintLine("  hats : %s", hp);
+    if(s.bassPat >= 0)
+        hw.PrintLine("  bass : pat#%d  cutoff->%dHz  Q=0.%02d",
+                     (int)s.bassPat, (int)s.bassCutoff, (int)(s.bassReso*100));
+    else
+        hw.PrintLine("  bass : (none)");
+    hw.PrintLine("  FX   : %s", SEC_FX[idx]);
+    if(s.transOutBars)
+        hw.PrintLine("  mix>>: %s  (%d bars before end)",
+                     MIX_NAME[s.transMode], (int)s.transOutBars);
+    hw.PrintLine("  rev fb=0.%02d  dly fb=0.%02d",
+                 (int)(s.revFb*100), (int)(s.dlyFb*100));
+    hw.PrintLine("--------------------------------------------------");
+}
+
+/* Línea viva: barra de compás + VU + FX + estado de transición */
+static void MonitorLive()
+{
+    if(!kMonitor) return;
+    int    idx   = monSec;
+    float  vu    = monVU;
+    float  tout  = monTransOut;
+    int    bar   = (int)monBar + 1;
+    int    bars  = (int)SECTIONS[idx].bars;
+
+    char vubar[24];
+    RenderBar(vu, 20, '#', vubar);
+
+    if(tout > 0.001f){
+        char tbar[16];
+        RenderBar(tout, 12, '>', tbar);
+        hw.PrintLine(" bar %02d/%02d VU[%s] MIX:%s [%s]",
+                     bar, bars, vubar, MIX_NAME[monMode], tbar);
+    } else {
+        hw.PrintLine(" bar %02d/%02d VU[%s] cut=%dHz rev0.%02d dly0.%02d",
+                     bar, bars, vubar, (int)monCutoff,
+                     (int)(monRev*100), (int)(monDly*100));
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -697,6 +854,9 @@ int main()
     hw.Init();
     hw.SetAudioBlockSize(AUDIO_BLOCK);
     hw.SetAudioSampleRate(SaiHandle::Config::SampleRate::SAI_48KHZ);
+
+    /* USB serial (false = no bloquear esperando terminal) */
+    if(kMonitor) hw.StartLog(false);
 
     drums.Init(SAMPLE_RATE);
     drums.kick.SetDrive(1.0f);
@@ -740,7 +900,32 @@ int main()
     EnterSection();
 
     hw.StartAudio(AudioCallback);
-    while(1) System::Delay(100);
+
+    /* Banner de bienvenida */
+    if(kMonitor){
+        hw.PrintLine("");
+        hw.PrintLine("###################################################");
+        hw.PrintLine("#   RED808 JOURNEY  -  live monitor  (USB serial) #");
+        hw.PrintLine("#   18 secciones / ~12.6 min / 132 BPM            #");
+        hw.PrintLine("#   FM ring-mod + TR909 + TB303 + reverb/delay    #");
+        hw.PrintLine("###################################################");
+    }
+
+    /* ── Monitor loop: banner al cambiar de sección + línea viva ── */
+    uint32_t liveTick = 0;
+    while(1){
+        if(monSecChanged){
+            monSecChanged = false;
+            MonitorBanner(monSec);
+            liveTick = 0;
+        }
+        /* Línea viva ~cada 500 ms (2 Hz) */
+        if(kMonitor && (++liveTick >= 5)){
+            liveTick = 0;
+            MonitorLive();
+        }
+        System::Delay(100);
+    }
 }
 
 /* ── Fault handler SOS ── */

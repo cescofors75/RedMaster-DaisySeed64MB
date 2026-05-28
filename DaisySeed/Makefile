@@ -54,6 +54,7 @@ DAISYSP_DIR  = ./DaisySP
 LIBS += -ldaisysp-lgpl
 LIBDIR += -L./DaisySP/DaisySP-LGPL/build
 LDFLAGS += -Wl,--no-warn-rwx-segments
+LDFLAGS += -Wl,--allow-multiple-definition
 
 SYSTEM_FILES_DIR = $(LIBDAISY_DIR)/core
 include $(SYSTEM_FILES_DIR)/Makefile

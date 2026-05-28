@@ -9,8 +9,9 @@
  *
  *  Suena solo al arrancar. El LED late con la música.
  *
- *  Build:   make -f Makefile.bells          → build_bells/DemoBells.bin
- *  Flash:   ../flash_bells.ps1               (DFU, QSPI @ 0x90040000)
+ *  Build:   build_daisy.ps1 -DemoBells   (o make DEMO_BELLS=1)
+ *           → build/DemoBells.bin
+ *  Flash:   flash_bells.ps1              (DFU, QSPI @ 0x90040000)
  *           NO necesita samples.bin (síntesis pura).
  * ═══════════════════════════════════════════════════════════════════ */
 

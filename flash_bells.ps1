@@ -2,7 +2,8 @@ param()
 
 # ══════════════════════════════════════════════════════════════════
 #  Flash DEMO BELLS — firmware standalone (síntesis pura, sin samples)
-#  Construye con Makefile.bells y flashea build_bells/DemoBells.bin
+#  Compila con: build_daisy.ps1 -DemoBells  (o make DEMO_BELLS=1)
+#  Flashea build/DemoBells.bin
 #  vía DFU del bootloader Daisy (QSPI @ 0x90040000).
 # ══════════════════════════════════════════════════════════════════
 
@@ -11,7 +12,7 @@ $repoRoot = $PSScriptRoot
 $root   = Join-Path $repoRoot 'DaisySeed'
 $dfu    = 'C:\Espressif\tools\dfu-util\0.11\dfu-util-0.11-win64\dfu-util.exe'
 $boot   = Join-Path $root 'libdaisy\core\dsy_bootloader_v6_4-intdfu-2000ms.bin'
-$fw     = Join-Path $root 'build_bells\DemoBells.bin'
+$fw     = Join-Path $root 'build\DemoBells.bin'
 $gccBin = 'C:\ST\STM32CubeIDE_2.0.0\STM32CubeIDE\plugins\com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.100.202509120712\tools\bin'
 $makeBin= 'C:\ST\STM32CubeIDE_2.0.0\STM32CubeIDE\plugins\com.st.stm32cube.ide.mcu.externaltools.make.win32_2.2.0.202409170845\tools\bin'
 $log    = Join-Path $repoRoot 'flash_bells_script_log.txt'
@@ -22,7 +23,7 @@ Set-Location $root
 "=== FLASH DEMO BELLS $(Get-Date -Format s) ===" | Out-File -FilePath $log -Encoding utf8
 
 if(-not (Test-Path $fw)) {
-    Write-Host "No existe $fw — compila primero: make -f Makefile.bells" -ForegroundColor Red
+    Write-Host "No existe $fw — compila primero: build_daisy.ps1 -DemoBells" -ForegroundColor Red
     'RESULT=NO_FIRMWARE' | Tee-Object -FilePath $log -Append
     exit 1
 }

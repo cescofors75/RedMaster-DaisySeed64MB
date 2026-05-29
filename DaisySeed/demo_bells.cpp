@@ -165,7 +165,7 @@ static void ApplyPreset(FM2Op::Synth& v, uint8_t preset)
             v.params.feedback=0.2f; v.params.detune=12.0f; v.params.velSens=0.5f;
             v.params.cAtk=0.006f; v.params.cDec=0.6f; v.params.cSus=0.6f; v.params.cRel=0.45f;
             v.params.mAtk=0.006f; v.params.mDec=0.4f; v.params.mSus=0.4f; v.params.mRel=0.3f;
-            v.params.volume=0.5f; break;
+            v.params.volume=0.30f; break;
     }
 }
 
@@ -351,7 +351,7 @@ static const Section SECTIONS[] = {
 {  24, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_NONE, RIDE_NONE,   0,  3, PRE_MARIMBA,500,0.70f, 0.60f, 0.50f, 12, FLAG_TOMS,       4, TMIX_STRIP  }, /* 13 Tribal perc      */
 {   8, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 14 Buildup          */
 {  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_8TH,    5,  5, PRE_BELL, 1100, 0.88f, 0.65f, 0.45f,  0, FLAG_CRASH,      4, TMIX_STRIP  }, /* 15 Peak drop        */
-{   8, KICK_GALLOP,SNR_BACK, SNR_BACK, HHC_16TH, HHO_NONE, RIDE_16TH,  -1,  8, PRE_SUPER,1400, 0.85f, 0.95f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
+{   8, KICK_GALLOP,SNR_BACK, SNR_BACK, HHC_16TH, HHO_NONE, RIDE_16TH,  -1,  8, PRE_SUPER,1400, 0.85f, 0.88f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
 {  48, KICK_GALLOP,SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_16TH,   8,  8, PRE_SUPER,1600, 0.88f, 0.70f, 0.50f,  0, FLAG_FINALE|FLAG_FUNK, 8, TMIX_ECHO }, /* 17 FINAL DROP */
 {   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 18 Reset            */
 };
@@ -382,7 +382,7 @@ static const char* const SEC_FX[NUM_SECTIONS] = {
     "riser: snare roll, density f(progress)",
     "peak: full mix, sub octaves rolling",
     "riser: supersaw, reverb fb->0.95",
-    "FINAL: crash/bar, sub 16th, anthem, +15%",
+    "FINAL: crash/bar, sub 16th, anthem, supersaw",
     "reset -> loop back to intro"
 };
 static const char* const MIX_NAME[5] = {
@@ -563,9 +563,9 @@ static void SequencerTick()
 
     /* ── FINALE: crash/compás + perc rodante ── */
     if(cur.flags & FLAG_FINALE){
-        if(step16==0)               drums.Trigger(TR909::INST_CRASH, 0.55f);
-        if((step16 & 1) == 0)       drums.Trigger(TR909::INST_SHAKER, 0.4f);
-        if(step16==2 || step16==10) drums.Trigger(TR909::INST_LOW_TOM, 0.6f);
+        if(step16==0)               drums.Trigger(TR909::INST_CRASH, 0.45f);
+        if(step16 % 4 == 2)         drums.Trigger(TR909::INST_SHAKER, 0.38f); /* offbeat, 4/bar */
+        if(step16==2 || step16==10) drums.Trigger(TR909::INST_LOW_TOM, 0.55f);
     }
 
     /* ── MELODÍA FM ── */
@@ -677,8 +677,8 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
     dlyFb += (tDlyFb - dlyFb) * 0.015f;
     reverb.SetFeedback(Clampf(revFb, 0.0f, 0.99f));
 
-    /* Ganancia máster (clímax empuja +15 %; tanh limita) */
-    float gainTgt = (cur.flags & FLAG_FINALE) ? 1.15f : 1.0f;
+    /* Ganancia máster — FINALE ya tiene suficiente energía sin empuje extra */
+    float gainTgt = 1.0f;
     masterGain += (gainTgt - masterGain) * 0.001f;
 
     /* ── Bucle de samples ── */

@@ -351,8 +351,8 @@ static const Section SECTIONS[] = {
 {  24, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_NONE, RIDE_NONE,   0,  3, PRE_MARIMBA,500,0.70f, 0.60f, 0.50f, 12, FLAG_TOMS,       4, TMIX_STRIP  }, /* 13 Tribal perc      */
 {   8, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 14 Buildup          */
 {  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_8TH,    5,  5, PRE_BELL, 1100, 0.88f, 0.65f, 0.45f,  0, FLAG_CRASH,      4, TMIX_STRIP  }, /* 15 Peak drop        */
-{   8, KICK_GALLOP,SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,   -1,  4, PRE_LEAD,  420, 0.82f, 0.72f, 0.25f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
-{  48, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_OFF,  RIDE_8TH,    5,  5, PRE_BELL, 1100, 0.88f, 0.58f, 0.28f,  0, FLAG_FINALE,    8, TMIX_WASH }, /* 17 FINAL DROP */
+{   8, KICK_GALLOP,SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,   -1,  3, PRE_PLUCK, 420, 0.82f, 0.60f, 0.22f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
+{  48, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_OFF,  RIDE_8TH,    5,  5, PRE_MARIMBA,1100,0.88f, 0.52f, 0.25f,  0, FLAG_FINALE,    8, TMIX_WASH }, /* 17 FINAL DROP */
 {   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 18 Reset            */
 };
 static constexpr int NUM_SECTIONS = (int)(sizeof(SECTIONS)/sizeof(SECTIONS[0]));
@@ -381,8 +381,8 @@ static const char* const SEC_FX[NUM_SECTIONS] = {
     "tribal: toms+perc, swing 12smp",
     "riser: snare roll, density f(progress)",
     "peak: full mix, sub octaves rolling",
-    "riser: lead FM, gallop kick, snare roll",
-    "FINAL: crash/bar, rolling bass, peak riff, ride 8th",
+    "riser: pluck FM (short), gallop kick, snare roll",
+    "FINAL: crash/bar, rolling bass, marimba riff, ride 8th",
     "reset -> loop back to intro"
 };
 static const char* const MIX_NAME[5] = {

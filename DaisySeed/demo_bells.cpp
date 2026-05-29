@@ -977,7 +977,8 @@ static void RenderPattern(uint16_t pat, char* buf)
 static void RenderBar(float level, int width, char fill, char* buf)
 {
     int n = (int)(level * (float)width + 0.5f);
-    if(n < 0) n = 0; if(n > width) n = width;
+    if(n < 0) n = 0;
+    if(n > width) n = width;
     int p = 0;
     for(int i = 0; i < width; i++) buf[p++] = (i < n) ? fill : '-';
     buf[p] = '\0';
@@ -1005,7 +1006,8 @@ static const char* SecColor(int idx)
 static void RenderVuColor(float level, int width, char* buf)
 {
     int n = (int)(level * (float)width + 0.5f);
-    if(n < 0) n = 0; if(n > width) n = width;
+    if(n < 0) n = 0;
+    if(n > width) n = width;
     int p = 0;
     const char* lastCol = "";
     for(int i = 0; i < width; i++){
@@ -1042,7 +1044,8 @@ static void RenderStepPos(int stp, char* buf)
 static void RenderProgress(int bar, int bars, int width, char* buf)
 {
     int n = (bars > 1) ? ((bar - 1) * width / (bars - 1)) : width;
-    if(n < 0) n = 0; if(n > width) n = width;
+    if(n < 0) n = 0;
+    if(n > width) n = width;
     int p = 0;
     for(int i = 0; i < width; i++)
         buf[p++] = (i < n) ? (i == n-1 ? '>' : '=') : '-';

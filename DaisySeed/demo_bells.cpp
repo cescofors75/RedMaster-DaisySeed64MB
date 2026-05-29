@@ -66,8 +66,12 @@ static inline float __fast_expf(float x) {
 #define expf(x) __fast_expf(x)
 
 #include "synth/tr909.h"
+#include "synth/tr808.h"
+#include "synth/tr505.h"
 #include "synth/tb303.h"
+#include "synth/sh101.h"
 #include "synth/fm2op.h"
+#include "synth/wavetable_osc.h"
 
 #undef sinf
 #undef expf
@@ -113,14 +117,63 @@ static constexpr bool kAnsi = true;
 static inline const char* C(const char* code){ return kAnsi ? code : ""; }
 
 /* ═══════════════════════════════════════════════════════════════════
- *  MOTORES
- *    · TR909::Kit y TB303::Synth → SRAM normal (constructores corren
- *      antes de hw.Init(); en SDRAM causarían HardFault).
+ *  MOTORES — los 7 engines instanciados
+ *    · Kits TR9/8/505, TB303, SH101, FM, WavetableOsc → SRAM normal
+ *      (sus constructores corren antes de hw.Init(); en SDRAM → HardFault).
  *    · ReverbSc y buffers grandes → SDRAM (constructor trivial).
+ *  Por sección se SELECCIONA un engine de cada tipo (drum/bass/lead) y
+ *  sólo ése se procesa en el callback → coste de CPU ~constante, pero a lo
+ *  largo del viaje suenan los 7.
  * ═══════════════════════════════════════════════════════════════════ */
-static TR909::Kit   drums;
-static TB303::Synth bass;
+static TR909::Kit   drums909;
+static TR808::Kit   drums808;
+static TR505::Kit   drums505;
+static TB303::Synth bass303;
+static SH101::Synth bassSH;
+static WavetableOsc wt;
 DSY_SDRAM_BSS static ReverbSc reverb;
+
+/* ── Selectores de engine (índices en SECTIONS) ── */
+enum DrumKit : uint8_t { DK_909 = 0, DK_808, DK_505 };
+enum BassEng : uint8_t { BE_303 = 0, BE_SH101 };
+enum LeadEng : uint8_t { LE_FM  = 0, LE_WT };
+static const char* const DK_NAME[3] = { "TR909", "TR808", "TR505" };
+static const char* const BE_NAME[2] = { "TB303", "SH101" };
+static const char* const LE_NAME[2] = { "FM2OP", "WTOSC" };
+
+/* Engine activo (se fija en EnterSection) */
+static uint8_t curDrumKit = DK_909;
+static uint8_t curBassEng = BE_303;
+static uint8_t curLeadEng = LE_FM;
+
+/* ── Instrumentos genéricos de batería → mapeados a cada kit ──
+ *  Todos los kits comparten KICK..HI_TOM (0-7). A partir de ahí divergen;
+ *  mapeamos cada genérico al equivalente más cercano de cada máquina. */
+enum GInst : uint8_t {
+    G_KICK=0, G_SNARE, G_CLAP, G_HHC, G_HHO, G_LTOM, G_MTOM,
+    G_RIDE, G_CRASH, G_RIM, G_SHK, G_PERC, G_COUNT
+};
+/*                          KICK SNR CLP HHC HHO LTM MTM RIDE CRSH RIM SHK PERC */
+static const uint8_t MAP909[G_COUNT] = { 0,  1,  2,  3,  4,  5,  6,  8,   9, 10, 11, 13 };
+static const uint8_t MAP808[G_COUNT] = { 0,  1,  2,  3,  4,  5,  6, 15,  15, 13, 12, 10 };
+static const uint8_t MAP505[G_COUNT] = { 0,  1,  2,  3,  4,  5,  6,  9,   9, 10, 11, 13 };
+
+static inline void DrumTrig(uint8_t g, float vel)
+{
+    switch(curDrumKit){
+        case DK_808: drums808.Trigger(MAP808[g], vel); break;
+        case DK_505: drums505.Trigger(MAP505[g], vel); break;
+        default:     drums909.Trigger(MAP909[g], vel); break;
+    }
+}
+static inline float DrumProcess()
+{
+    switch(curDrumKit){
+        case DK_808: return drums808.Process();
+        case DK_505: return drums505.Process();
+        default:     return drums909.Process();
+    }
+}
 
 /* Delay estéreo ping-pong — buffers en SDRAM */
 static constexpr size_t DLY_SIZE = 28800;   /* 0.6 s @ 48k */
@@ -203,6 +256,70 @@ static void FmNoteOn(uint8_t midiNote, float vel, uint8_t preset)
     ApplyPreset(v, preset);
     v.NoteOn(midiNote, vel);
     fmNext = (uint8_t)((fmNext + 1) % NUM_FM);
+}
+
+/* ── LEAD router: FM2Op (8 voces) o WavetableOsc (polifónico interno) ──
+ *  El preset FM se mapea a una forma de onda WT cuando el lead es WTOSC. */
+static uint8_t WtWaveForPreset(uint8_t preset)
+{
+    switch(preset){
+        case PRE_BELL:    return WT_WAVE_SOFTSINE;
+        case PRE_PLUCK:   return WT_WAVE_SAW;
+        case PRE_LEAD:    return WT_WAVE_SAW;
+        case PRE_MARIMBA: return WT_WAVE_SINE;
+        case PRE_STAB:    return WT_WAVE_PULSE25;
+        case PRE_KEYS:    return WT_WAVE_ORGAN;
+        case PRE_SUPER:   return WT_WAVE_SOFTSQ;
+        default:          return WT_WAVE_SAW;
+    }
+}
+static void LeadNoteOn(uint8_t midiNote, float vel, uint8_t preset)
+{
+    if(curLeadEng == LE_WT)
+        wt.NoteOn(midiNote, vel, (float)WtWaveForPreset(preset));
+    else
+        FmNoteOn(midiNote, vel, preset);
+}
+static inline float LeadProcess()
+{
+    if(curLeadEng == LE_WT)
+        return wt.Process();
+    float m = 0.0f;
+    for(int v = 0; v < NUM_FM; v++) m += fmv[v].Process();
+    return m;
+}
+static inline int LeadVoiceCount()
+{
+    if(curLeadEng == LE_WT){
+        /* WavetableOsc no expone el contador; estimamos por NUM */
+        return 0;  /* se rellena en callback si hace falta */
+    }
+    int n = 0;
+    for(int v = 0; v < NUM_FM; v++) if(fmv[v].IsActive()) n++;
+    return n;
+}
+
+/* ── BASS router: TB303 (acc/slide) o SH101 (vel) ── */
+static inline void BassNoteOn(uint8_t note, bool acc, bool slide)
+{
+    if(curBassEng == BE_SH101)
+        bassSH.NoteOn(note, acc ? 1.0f : 0.7f);
+    else
+        bass303.NoteOn(note, acc, slide);
+}
+static inline float BassProcess()
+{
+    return (curBassEng == BE_SH101) ? bassSH.Process() : bass303.Process();
+}
+static inline void BassSetCutoff(float fc)
+{
+    if(curBassEng == BE_SH101) bassSH.params.cutoff = Clampf(fc, 40.0f, 18000.0f);
+    else                       bass303.SetCutoff(Clampf(fc, 40.0f, 18000.0f));
+}
+static inline void BassSetResonance(float q)
+{
+    if(curBassEng == BE_SH101) bassSH.params.resonance = Clampf(q, 0.0f, 0.95f);
+    else                       bass303.SetResonance(q);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -420,6 +537,34 @@ static const char* const MIX_NAME[5] = {
 };
 
 /* ═══════════════════════════════════════════════════════════════════
+ *  SELECCIÓN DE ENGINE POR SECCIÓN (tabla paralela a SECTIONS)
+ *  drum: DK_909/808/505 · bass: BE_303/SH101 · lead: LE_FM/WT
+ *  A lo largo del viaje suenan los 7 engines.
+ * ═══════════════════════════════════════════════════════════════════ */
+struct EngineSel { uint8_t drum, bass, lead; };
+static const EngineSel SEC_ENGINE[NUM_SECTIONS] = {
+    { DK_808, BE_303,   LE_FM },  /* 1  Detroit intro   */
+    { DK_808, BE_303,   LE_FM },  /* 2  Detroit groove  */
+    { DK_808, BE_303,   LE_FM },  /* 3  Breakdown       */
+    { DK_909, BE_303,   LE_FM },  /* 4  Acid house      */
+    { DK_909, BE_303,   LE_FM },  /* 5  Acid peak       */
+    { DK_505, BE_SH101, LE_FM },  /* 6  UK garage       */
+    { DK_808, BE_SH101, LE_WT },  /* 7  Organic house   ← WT organ */
+    { DK_808, BE_SH101, LE_FM },  /* 8  Deep house      */
+    { DK_505, BE_303,   LE_FM },  /* 9  Funky electro   */
+    { DK_909, BE_303,   LE_FM },  /* 10 Micro-break     */
+    { DK_505, BE_SH101, LE_WT },  /* 11 Minimal         ← WT */
+    { DK_909, BE_303,   LE_FM },  /* 12 Electro break   */
+    { DK_909, BE_303,   LE_FM },  /* 13 Trance supersaw */
+    { DK_808, BE_303,   LE_FM },  /* 14 Tribal (congas) */
+    { DK_909, BE_303,   LE_FM },  /* 15 Buildup         */
+    { DK_909, BE_303,   LE_FM },  /* 16 Peak drop       */
+    { DK_909, BE_303,   LE_FM },  /* 17 Final buildup   */
+    { DK_909, BE_303,   LE_FM },  /* 18 Final drop      */
+    { DK_808, BE_303,   LE_FM },  /* 19 Reset           */
+};
+
+/* ═══════════════════════════════════════════════════════════════════
  *  ESTADO DEL SECUENCIADOR
  * ═══════════════════════════════════════════════════════════════════ */
 static constexpr float BPM = 132.0f;
@@ -458,7 +603,10 @@ static volatile float    monCutoff     = 420.0f;
 static volatile float    monRev        = 0.80f;
 static volatile float    monDly        = 0.45f;
 static volatile int      monStep16     = 0;      /* paso actual 0-15       */
-static volatile uint8_t  monFmVoices   = 0;      /* voces FM activas       */
+static volatile uint8_t  monFmVoices   = 0;      /* voces del lead activas */
+static volatile uint8_t  monDrum       = 0;      /* DrumKit activo         */
+static volatile uint8_t  monBass       = 0;      /* BassEng activo         */
+static volatile uint8_t  monLead       = 0;      /* LeadEng activo         */
 static float monVuPeak = 0.0f;
 
 /* ── Estado de transición ─────────────────────────────────────────
@@ -495,10 +643,18 @@ static void EnterSection()
     rideGain     = 0.0f;
     bassCutoffEff = (cur.bassPat >= 0) ? 80.0f : cur.bassCutoff; /* empieza cerrado */
     drumsGainEff  = 0.9f;
-    bass.SetResonance(cur.bassReso);
+
+    /* Seleccionar engines de esta sección. Silenciar el lead saliente
+     * para que no queden voces colgando al cambiar de motor. */
+    if(curLeadEng == LE_WT) wt.AllNotesOff();
+    curDrumKit = SEC_ENGINE[secIdx].drum;
+    curBassEng = SEC_ENGINE[secIdx].bass;
+    curLeadEng = SEC_ENGINE[secIdx].lead;
+
+    BassSetResonance(cur.bassReso);
 
     if(cur.flags & FLAG_CRASH)
-        drums.Trigger(TR909::INST_CRASH, 0.85f);
+        DrumTrig(G_CRASH, 0.85f);
 
     /* Avisar al monitor del cambio de sección */
     monSec        = secIdx;
@@ -547,73 +703,72 @@ static void SequencerTick()
 
     /* ── KICK ── */
     if(Hit(cur.kick, step16))
-        drums.Trigger(TR909::INST_KICK, 1.0f);
+        DrumTrig(G_KICK, 1.0f);
 
     /* ── SNARE (roll en buildup) ── */
     if(buildup){
         bool roll = (secProg < 0.5f) ? (step16 % 4 == 0)
                   : (secProg < 0.8f) ? (step16 % 2 == 0) : true;
         if(roll)
-            drums.Trigger(TR909::INST_SNARE, 0.35f + 0.65f * secProg);
+            DrumTrig(G_SNARE, 0.35f + 0.65f * secProg);
     } else if(!stripping && Hit(cur.snare, step16)){
         float v = (step16==4 || step16==12) ? 0.9f : 0.45f;
-        drums.Trigger(TR909::INST_SNARE, v);
+        DrumTrig(G_SNARE, v);
     }
 
     /* ── CLAP ── */
     if(!stripping && Hit(cur.clap, step16))
-        drums.Trigger(TR909::INST_CLAP, 0.85f);
+        DrumTrig(G_CLAP, 0.85f);
 
     /* ── HI-HAT cerrado ── */
     if(!stripping && Hit(cur.hhc, step16))
-        drums.Trigger(TR909::INST_HIHAT_C, (step16%2==0) ? 0.6f : 0.4f);
+        DrumTrig(G_HHC, (step16%2==0) ? 0.6f : 0.4f);
 
     /* ── HI-HAT abierto ── */
     if(!stripping && Hit(cur.hho, step16))
-        drums.Trigger(TR909::INST_HIHAT_O, 0.7f);
+        DrumTrig(G_HHO, 0.7f);
 
-    /* ── RIDE con fade-in ── */
+    /* ── RIDE con fade-in (gain en la velocity, sin SetVolume) ── */
     if(!stripping && Hit(cur.ride, step16)){
         rideGain += (1.0f - rideGain) * 0.02f;
-        drums.SetVolume(TR909::INST_RIDE, 0.55f * rideGain);
-        drums.Trigger(TR909::INST_RIDE, 0.6f);
+        DrumTrig(G_RIDE, 0.6f * rideGain);
     }
 
     /* ── TOMS tribales ── */
     if(cur.flags & FLAG_TOMS){
-        if(step16==2 || step16==11) drums.Trigger(TR909::INST_LOW_TOM, 0.7f);
-        if(step16==6 || step16==14) drums.Trigger(TR909::INST_MID_TOM, 0.6f);
-        if(step16==3 || step16==9 || step16==13) drums.Trigger(TR909::INST_HI_PERC, 0.5f);
-        if(step16==1 || step16==7)  drums.Trigger(TR909::INST_SHAKER, 0.5f);
+        if(step16==2 || step16==11) DrumTrig(G_LTOM, 0.7f);
+        if(step16==6 || step16==14) DrumTrig(G_MTOM, 0.6f);
+        if(step16==3 || step16==9 || step16==13) DrumTrig(G_PERC, 0.5f);
+        if(step16==1 || step16==7)  DrumTrig(G_SHK, 0.5f);
     }
 
     /* ── FUNK: rimshot + perc en síncopas ── */
     if(cur.flags & FLAG_FUNK){
-        if(step16==3 || step16==7 || step16==11) drums.Trigger(TR909::INST_RIMSHOT, 0.45f);
-        if(step16==6 || step16==14)              drums.Trigger(TR909::INST_HI_PERC, 0.4f);
+        if(step16==3 || step16==7 || step16==11) DrumTrig(G_RIM, 0.45f);
+        if(step16==6 || step16==14)              DrumTrig(G_PERC, 0.4f);
     }
 
     /* ── FINALE: crash en cada compás (limpio, sin solapamiento) ── */
     if(cur.flags & FLAG_FINALE){
-        if(step16 == 0)  drums.Trigger(TR909::INST_CRASH,   0.42f);
-        if(step16 == 10) drums.Trigger(TR909::INST_LOW_TOM, 0.48f);
+        if(step16 == 0)  DrumTrig(G_CRASH, 0.42f);
+        if(step16 == 10) DrumTrig(G_LTOM,  0.48f);
     }
 
-    /* ── MELODÍA FM ── */
+    /* ── MELODÍA (lead: FM o Wavetable) ── */
     if(cur.melPat >= 0){
         const Melody& m = MEL_BANK[cur.melPat];
         uint8_t hi = m.hi[step16];
-        if(hi) FmNoteOn(hi, ((step16%4)==0) ? 0.9f : 0.6f, cur.fmPreset);
+        if(hi) LeadNoteOn(hi, ((step16%4)==0) ? 0.9f : 0.6f, cur.fmPreset);
         uint8_t lo = m.lo[step16];
-        if(lo) FmNoteOn(lo, 0.65f, cur.fmPreset);
+        if(lo) LeadNoteOn(lo, 0.65f, cur.fmPreset);
     }
 
-    /* ── BAJO 303 ── */
+    /* ── BAJO (303 o SH101) ── */
     if(cur.bassPat >= 0){
         const BassPat& bp = BASS_BANK[cur.bassPat];
         uint8_t note = bp.note[step16];
         if(note)
-            bass.NoteOn(note, bp.acc[step16] != 0, bp.slide[step16] != 0);
+            BassNoteOn(note, bp.acc[step16] != 0, bp.slide[step16] != 0);
     }
 
     ledLevel = (step16 % 4 == 0) ? 1.0f : 0.4f;
@@ -700,8 +855,8 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         drumsGainEff   = 0.9f;
     }
 
-    /* Aplicar cutoff al bajo (por bloque es suficiente) */
-    bass.SetCutoff(Clampf(bassCutoffEff, 40.0f, 18000.0f));
+    /* Aplicar cutoff al bajo activo (por bloque es suficiente) */
+    BassSetCutoff(bassCutoffEff);
 
     /* Lerp de reverb/delay */
     revFb += (tRevFb - revFb) * 0.015f;
@@ -733,7 +888,7 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         /* Ganancia de drums: reducida en FINALE para evitar saturación
          * (gallop kick + 16th hats + ride + crash acumulan mucho RMS) */
         float dGain = drumsGainEff * ((cur.flags & FLAG_FINALE) ? 0.70f : 1.0f);
-        float drumMix = drums.Process() * dGain;
+        float drumMix = DrumProcess() * dGain;
 
         /* Delay ping-pong */
         size_t rpL = (dlyWp + DLY_SIZE - dlyTimeL) % DLY_SIZE;
@@ -741,12 +896,10 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         float dL   = dlyBufL[rpL];
         float dR   = dlyBufR[rpR];
 
-        float fmMix = 0.0f;
-        for(int v = 0; v < NUM_FM; v++)
-            fmMix += fmv[v].Process();
-        fmMix *= 0.30f;   /* escalado global; anthem melody activa 8 voces */
+        /* Lead activo (FM 8 voces o Wavetable polifónico) */
+        float fmMix = LeadProcess() * 0.30f;
 
-        float bassMix = bass.Process() * 0.85f;
+        float bassMix = BassProcess() * 0.85f;
 
         /* Alimentar delay (cross-feed L↔R) */
         dlyBufL[dlyWp] = drumMix * 0.14f + fmMix * 0.18f + dR * dlyFb;
@@ -786,10 +939,14 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
     monRev      = revFb;
     monDly      = dlyFb;
     monStep16   = step16;
-    /* contar voces FM activas */
-    uint8_t fmAct = 0;
-    for(int v = 0; v < NUM_FM; v++) if(fmv[v].IsActive()) fmAct++;
-    monFmVoices = fmAct;
+    /* contar voces del lead activo */
+    uint8_t lvAct = 0;
+    if(curLeadEng == LE_FM)
+        for(int v = 0; v < NUM_FM; v++) if(fmv[v].IsActive()) lvAct++;
+    monFmVoices = lvAct;
+    monDrum     = curDrumKit;
+    monBass     = curBassEng;
+    monLead     = curLeadEng;
 
     ledLevel *= 0.85f;
     hw.SetLed(ledLevel > 0.2f);
@@ -942,6 +1099,15 @@ static void MonitorBanner(int idx)
        (s.flags & FLAG_FINALE) ? C(A_BRED) : C(A_BGRN),
        (s.flags & FLAG_FINALE) ? "BYPASS" : "ON", C(A_RST),
        s.revFb, s.dlyFb);
+    /* ── Rack de engines activos en esta sección ── */
+    const EngineSel& e = SEC_ENGINE[idx];
+    PL("  %sENGINES%s drum=%s%s%s  bass=%s%s%s  lead=%s%s%s",
+       C(A_BWHT), C(A_RST),
+       C(A_BCYN), DK_NAME[e.drum], C(A_RST),
+       (s.bassPat >= 0) ? C(A_BGRN) : C(A_DIM),
+       (s.bassPat >= 0) ? BE_NAME[e.bass] : "--", C(A_RST),
+       (s.melPat  >= 0) ? C(A_BMAG) : C(A_DIM),
+       (s.melPat  >= 0) ? LE_NAME[e.lead] : "--", C(A_RST));
     PL("%s--------------------------------------------------%s", C(A_DIM), C(A_RST));
 }
 
@@ -979,11 +1145,12 @@ static void MonitorLive()
            C(A_BRED), MIX_NAME[monMode], C(A_RST),
            C(A_BRED), tbar, C(A_RST));
     } else {
-        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] fc=%d rev%.2f fm:%s%d%s",
+        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %s%s/%s/%s%s fc=%d v:%s%d%s",
            beatCol, beat, C(A_RST), stp,
            col, stepbuf, C(A_RST), vubar,
            col, progbuf, C(A_RST),
-           (int)monCutoff, monRev, fmCol, fmv_n, C(A_RST));
+           C(A_DIM), DK_NAME[monDrum], BE_NAME[monBass], LE_NAME[monLead], C(A_RST),
+           (int)monCutoff, fmCol, fmv_n, C(A_RST));
     }
 }
 
@@ -1004,37 +1171,62 @@ int main()
     /* USB serial (false = no bloquear esperando terminal) */
     if(kMonitor) hw.StartLog(false);
 
-    drums.Init(SAMPLE_RATE);
-    drums.kick.SetDrive(1.0f);
-    drums.kick.SetDecay(0.55f);
-    drums.kick.SetCompression(1.0f);
-    drums.hihatO.SetDecay(1.6f);
-    drums.SetVolume(TR909::INST_KICK,    1.3f);
-    drums.SetVolume(TR909::INST_SNARE,   0.7f);
-    drums.SetVolume(TR909::INST_HIHAT_C, 0.5f);
-    drums.SetVolume(TR909::INST_HIHAT_O, 0.6f);
-    drums.SetVolume(TR909::INST_CLAP,    0.5f);
-    drums.SetVolume(TR909::INST_RIDE,    0.5f);
-    drums.SetVolume(TR909::INST_LOW_TOM, 0.7f);
-    drums.SetVolume(TR909::INST_MID_TOM, 0.7f);
-    drums.SetVolume(TR909::INST_HI_PERC, 0.5f);
-    drums.SetVolume(TR909::INST_SHAKER,  0.5f);
-    drums.SetMasterVolume(0.9f);
+    /* ── TR909 (kit principal, afinado al detalle) ── */
+    drums909.Init(SAMPLE_RATE);
+    drums909.kick.SetDrive(1.0f);
+    drums909.kick.SetDecay(0.55f);
+    drums909.kick.SetCompression(1.0f);
+    drums909.hihatO.SetDecay(1.6f);
+    drums909.SetVolume(TR909::INST_KICK,    1.3f);
+    drums909.SetVolume(TR909::INST_SNARE,   0.7f);
+    drums909.SetVolume(TR909::INST_HIHAT_C, 0.5f);
+    drums909.SetVolume(TR909::INST_HIHAT_O, 0.6f);
+    drums909.SetVolume(TR909::INST_CLAP,    0.5f);
+    drums909.SetVolume(TR909::INST_RIDE,    0.5f);
+    drums909.SetVolume(TR909::INST_LOW_TOM, 0.7f);
+    drums909.SetVolume(TR909::INST_MID_TOM, 0.7f);
+    drums909.SetVolume(TR909::INST_HI_PERC, 0.5f);
+    drums909.SetVolume(TR909::INST_SHAKER,  0.5f);
+    drums909.SetMasterVolume(0.9f);
+
+    /* ── TR808 (graves redondos, kick boom) ── */
+    drums808.Init(SAMPLE_RATE);
+    drums808.SetVolume(TR808::INST_KICK, 1.3f);
+    drums808.SetMasterVolume(0.9f);
+
+    /* ── TR505 (lo-fi, percusivo) ── */
+    drums505.Init(SAMPLE_RATE);
+    drums505.SetVolume(TR505::INST_KICK, 1.2f);
+    drums505.SetMasterVolume(0.9f);
 
     for(int v = 0; v < NUM_FM; v++){
         fmv[v].Init(SAMPLE_RATE);
         ApplyPreset(fmv[v], PRE_BELL);
     }
 
-    bass.Init(SAMPLE_RATE);
-    bass.SetWaveform(TB303::WAVE_SAW);
-    bass.SetCutoff(420.0f);
-    bass.SetResonance(0.82f);
-    bass.SetEnvMod(0.8f);
-    bass.SetDecay(0.12f);
-    bass.SetAccent(0.85f);
-    bass.SetOverdrive(0.5f);
-    bass.SetVolume(0.8f);
+    /* ── Wavetable lead ── */
+    wt.Init(SAMPLE_RATE);
+    wt.SetFilter(6000.0f, 0.7f);
+
+    /* ── TB303 (bajo ácido principal) ── */
+    bass303.Init(SAMPLE_RATE);
+    bass303.SetWaveform(TB303::WAVE_SAW);
+    bass303.SetCutoff(420.0f);
+    bass303.SetResonance(0.82f);
+    bass303.SetEnvMod(0.8f);
+    bass303.SetDecay(0.12f);
+    bass303.SetAccent(0.85f);
+    bass303.SetOverdrive(0.5f);
+    bass303.SetVolume(0.8f);
+
+    /* ── SH101 (bajo alternativo, más redondo) ── */
+    bassSH.Init(SAMPLE_RATE);
+    bassSH.params.waveform  = 0;     /* saw */
+    bassSH.params.subLevel  = 0.4f;
+    bassSH.params.cutoff    = 600.0f;
+    bassSH.params.resonance = 0.4f;
+    bassSH.params.vcaDecay  = 0.4f;
+    bassSH.params.volume    = 0.8f;
 
     reverb.Init(SAMPLE_RATE);
     reverb.SetFeedback(0.80f);
@@ -1054,9 +1246,9 @@ int main()
         PL("%s%s###################################################%s", C(A_BOLD), C(A_BRED), C(A_RST));
         PL("%s%s#%s   %sRED808 JOURNEY%s  -  live monitor  (USB serial) %s%s#%s",
            C(A_BOLD), C(A_BRED), C(A_RST), C(A_BWHT), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
-        PL("%s%s#%s   %s18 secciones / ~12.6 min / 132 BPM%s            %s%s#%s",
+        PL("%s%s#%s   %s19 secciones / ~10.4 min / 132 BPM%s            %s%s#%s",
            C(A_BOLD), C(A_BRED), C(A_RST), C(A_BCYN), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
-        PL("%s%s#%s   %sFM ring-mod + TR909 + TB303 + reverb/delay%s    %s%s#%s",
+        PL("%s%s#%s   %s7 engines: 909 808 505 303 SH101 FM WT%s        %s%s#%s",
            C(A_BOLD), C(A_BRED), C(A_RST), C(A_BGRN), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
         PL("%s%s###################################################%s", C(A_BOLD), C(A_BRED), C(A_RST));
     }

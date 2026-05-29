@@ -808,6 +808,11 @@ static void RenderPattern(uint16_t pat, char* buf)
     buf[p] = '\0';
 }
 
+/* hw.PrintLine emite solo \n; los terminales serie raw necesitan \r\n.
+ * Este wrapper antepone \r para devolver el cursor a la columna 0 y
+ * evitar el efecto escalera diagonal. */
+#define PL(...) hw.PrintLine("\r" __VA_ARGS__)
+
 /* Barra VU ASCII: nivel 0..1 → "##########----------" (width chars) */
 static void RenderBar(float level, int width, char fill, char* buf)
 {
@@ -901,40 +906,40 @@ static void MonitorBanner(int idx)
                          (s.flags & FLAG_CRASH)   ? "***..." : "------";
     const char* col = SecColor(idx);
 
-    hw.PrintLine("");
-    hw.PrintLine("%s+==================================================+%s", col, C(A_RST));
-    hw.PrintLine("%s|%s %s[%2d/%2d]%s %s%-26s%s%3d bars %s|%s",
-                 col, C(A_RST), C(A_BOLD), idx+1, NUM_SECTIONS, C(A_RST),
-                 col, SEC_NAME[idx], C(A_RST), (int)s.bars, col, C(A_RST));
-    hw.PrintLine("%s|%s  %s%s%s  BPM=%d  block=%lu smp/step             %s|%s",
-                 col, C(A_RST), C(A_BWHT), energy, C(A_RST),
-                 (int)BPM, (unsigned long)kStepSamples, col, C(A_RST));
-    hw.PrintLine("%s+==================================================+%s", col, C(A_RST));
+    PL("");
+    PL("%s+==================================================+%s", col, C(A_RST));
+    PL("%s|%s %s[%2d/%2d]%s %s%-26s%s%3d bars %s|%s",
+       col, C(A_RST), C(A_BOLD), idx+1, NUM_SECTIONS, C(A_RST),
+       col, SEC_NAME[idx], C(A_RST), (int)s.bars, col, C(A_RST));
+    PL("%s|%s  %s%s%s  BPM=%d  block=%lu smp/step             %s|%s",
+       col, C(A_RST), C(A_BWHT), energy, C(A_RST),
+       (int)BPM, (unsigned long)kStepSamples, col, C(A_RST));
+    PL("%s+==================================================+%s", col, C(A_RST));
     if(s.swing)
-        hw.PrintLine("  %sswing%s  T+=%-3d T-=%-3d smp  (~%d.%d ms)",
-                     C(A_DIM), C(A_RST), (int)s.swing, (int)s.swing, swMs10/10, swMs10%10);
-    hw.PrintLine("  %skick%s : %s%s%s", C(A_BBLU), C(A_RST), C(A_BWHT), kp, C(A_RST));
-    hw.PrintLine("  %sride%s : %s%s%s", C(A_BCYN), C(A_RST), C(A_DIM), rp, C(A_RST));
+        PL("  %sswing%s  T+=%-3d T-=%-3d smp  (~%d.%d ms)",
+           C(A_DIM), C(A_RST), (int)s.swing, (int)s.swing, swMs10/10, swMs10%10);
+    PL("  %skick%s : %s%s%s", C(A_BBLU), C(A_RST), C(A_BWHT), kp, C(A_RST));
+    PL("  %sride%s : %s%s%s", C(A_BCYN), C(A_RST), C(A_DIM), rp, C(A_RST));
     if(s.bassPat >= 0)
-        hw.PrintLine("  %sbass%s : pat#%d  fc=%dHz  Q=%.2f",
-                     C(A_BGRN), C(A_RST), (int)s.bassPat, (int)s.bassCutoff, s.bassReso);
+        PL("  %sbass%s : pat#%d  fc=%dHz  Q=%.2f",
+           C(A_BGRN), C(A_RST), (int)s.bassPat, (int)s.bassCutoff, s.bassReso);
     else
-        hw.PrintLine("  %sbass%s : --", C(A_DIM), C(A_RST));
+        PL("  %sbass%s : --", C(A_DIM), C(A_RST));
     if(s.melPat >= 0)
-        hw.PrintLine("  %smel%s  : pat#%d  preset=%d  fm_voices<=%d",
-                     C(A_BMAG), C(A_RST), (int)s.melPat, (int)s.fmPreset, NUM_FM);
+        PL("  %smel%s  : pat#%d  preset=%d  fm_voices<=%d",
+           C(A_BMAG), C(A_RST), (int)s.melPat, (int)s.fmPreset, NUM_FM);
     else
-        hw.PrintLine("  %smel%s  : --", C(A_DIM), C(A_RST));
-    hw.PrintLine("  %sFX%s   : %s%s%s", C(A_BYEL), C(A_RST), C(A_YEL), SEC_FX[idx], C(A_RST));
+        PL("  %smel%s  : --", C(A_DIM), C(A_RST));
+    PL("  %sFX%s   : %s%s%s", C(A_BYEL), C(A_RST), C(A_YEL), SEC_FX[idx], C(A_RST));
     if(s.transOutBars)
-        hw.PrintLine("  %smix>>%s: %s%s%s  (%d bars out)",
-                     C(A_BRED), C(A_RST), C(A_BRED), MIX_NAME[s.transMode], C(A_RST),
-                     (int)s.transOutBars);
-    hw.PrintLine("  reverb=%s%s%s  rev=%.2f  dly=%.2f",
-                 (s.flags & FLAG_FINALE) ? C(A_BRED) : C(A_BGRN),
-                 (s.flags & FLAG_FINALE) ? "BYPASS" : "ON", C(A_RST),
-                 s.revFb, s.dlyFb);
-    hw.PrintLine("%s--------------------------------------------------%s", C(A_DIM), C(A_RST));
+        PL("  %smix>>%s: %s%s%s  (%d bars out)",
+           C(A_BRED), C(A_RST), C(A_BRED), MIX_NAME[s.transMode], C(A_RST),
+           (int)s.transOutBars);
+    PL("  reverb=%s%s%s  rev=%.2f  dly=%.2f",
+       (s.flags & FLAG_FINALE) ? C(A_BRED) : C(A_BGRN),
+       (s.flags & FLAG_FINALE) ? "BYPASS" : "ON", C(A_RST),
+       s.revFb, s.dlyFb);
+    PL("%s--------------------------------------------------%s", C(A_DIM), C(A_RST));
 }
 
 /* Línea viva cada compás */
@@ -964,18 +969,18 @@ static void MonitorLive()
     if(tout > 0.001f){
         char tbar[14];
         RenderBar(tout, 10, '>', tbar);
-        hw.PrintLine(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %s>>%s%s %s%s%s",
-                     beatCol, beat, C(A_RST), stp,
-                     col, stepbuf, C(A_RST), vubar,
-                     col, progbuf, C(A_RST),
-                     C(A_BRED), MIX_NAME[monMode], C(A_RST),
-                     C(A_BRED), tbar, C(A_RST));
+        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %s>>%s%s %s%s%s",
+           beatCol, beat, C(A_RST), stp,
+           col, stepbuf, C(A_RST), vubar,
+           col, progbuf, C(A_RST),
+           C(A_BRED), MIX_NAME[monMode], C(A_RST),
+           C(A_BRED), tbar, C(A_RST));
     } else {
-        hw.PrintLine(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] fc=%d rev%.2f fm:%s%d%s",
-                     beatCol, beat, C(A_RST), stp,
-                     col, stepbuf, C(A_RST), vubar,
-                     col, progbuf, C(A_RST),
-                     (int)monCutoff, monRev, fmCol, fmv_n, C(A_RST));
+        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] fc=%d rev%.2f fm:%s%d%s",
+           beatCol, beat, C(A_RST), stp,
+           col, stepbuf, C(A_RST), vubar,
+           col, progbuf, C(A_RST),
+           (int)monCutoff, monRev, fmCol, fmv_n, C(A_RST));
     }
 }
 
@@ -1042,15 +1047,15 @@ int main()
     /* Banner de bienvenida */
     if(kMonitor){
         if(kAnsi) hw.PrintLine(A_CLR);                /* limpia pantalla */
-        hw.PrintLine("");
-        hw.PrintLine("%s%s###################################################%s", C(A_BOLD), C(A_BRED), C(A_RST));
-        hw.PrintLine("%s%s#%s   %sRED808 JOURNEY%s  -  live monitor  (USB serial) %s%s#%s",
-                     C(A_BOLD), C(A_BRED), C(A_RST), C(A_BWHT), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
-        hw.PrintLine("%s%s#%s   %s18 secciones / ~12.6 min / 132 BPM%s            %s%s#%s",
-                     C(A_BOLD), C(A_BRED), C(A_RST), C(A_BCYN), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
-        hw.PrintLine("%s%s#%s   %sFM ring-mod + TR909 + TB303 + reverb/delay%s    %s%s#%s",
-                     C(A_BOLD), C(A_BRED), C(A_RST), C(A_BGRN), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
-        hw.PrintLine("%s%s###################################################%s", C(A_BOLD), C(A_BRED), C(A_RST));
+        PL("");
+        PL("%s%s###################################################%s", C(A_BOLD), C(A_BRED), C(A_RST));
+        PL("%s%s#%s   %sRED808 JOURNEY%s  -  live monitor  (USB serial) %s%s#%s",
+           C(A_BOLD), C(A_BRED), C(A_RST), C(A_BWHT), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
+        PL("%s%s#%s   %s18 secciones / ~12.6 min / 132 BPM%s            %s%s#%s",
+           C(A_BOLD), C(A_BRED), C(A_RST), C(A_BCYN), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
+        PL("%s%s#%s   %sFM ring-mod + TR909 + TB303 + reverb/delay%s    %s%s#%s",
+           C(A_BOLD), C(A_BRED), C(A_RST), C(A_BGRN), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
+        PL("%s%s###################################################%s", C(A_BOLD), C(A_BRED), C(A_RST));
     }
 
     /* ── Monitor loop: banner al cambiar de sección + línea viva ── */

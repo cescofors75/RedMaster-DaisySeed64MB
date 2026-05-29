@@ -351,8 +351,8 @@ static const Section SECTIONS[] = {
 {  24, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_NONE, RIDE_NONE,   0,  3, PRE_MARIMBA,500,0.70f, 0.60f, 0.50f, 12, FLAG_TOMS,       4, TMIX_STRIP  }, /* 13 Tribal perc      */
 {   8, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 14 Buildup          */
 {  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_8TH,    5,  5, PRE_BELL, 1100, 0.88f, 0.65f, 0.45f,  0, FLAG_CRASH,      4, TMIX_STRIP  }, /* 15 Peak drop        */
-{   8, KICK_GALLOP,SNR_BACK, SNR_BACK, HHC_16TH, HHO_NONE, RIDE_16TH,  -1,  8, PRE_SUPER,1400, 0.85f, 0.80f, 0.32f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
-{  48, KICK_GALLOP,SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_16TH,   8,  8, PRE_SUPER,1500, 0.86f, 0.60f, 0.32f,  0, FLAG_FINALE|FLAG_FUNK, 8, TMIX_WASH }, /* 17 FINAL DROP */
+{   8, KICK_GALLOP,SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,   -1,  4, PRE_LEAD,  420, 0.82f, 0.72f, 0.25f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
+{  48, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_OFF,  RIDE_8TH,    5,  5, PRE_BELL, 1100, 0.88f, 0.58f, 0.28f,  0, FLAG_FINALE,    8, TMIX_WASH }, /* 17 FINAL DROP */
 {   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 18 Reset            */
 };
 static constexpr int NUM_SECTIONS = (int)(sizeof(SECTIONS)/sizeof(SECTIONS[0]));
@@ -381,8 +381,8 @@ static const char* const SEC_FX[NUM_SECTIONS] = {
     "tribal: toms+perc, swing 12smp",
     "riser: snare roll, density f(progress)",
     "peak: full mix, sub octaves rolling",
-    "riser: supersaw, reverb fb->0.95",
-    "FINAL: crash/bar, sub 16th, anthem, warm saw",
+    "riser: lead FM, gallop kick, snare roll",
+    "FINAL: crash/bar, rolling bass, peak riff, ride 8th",
     "reset -> loop back to intro"
 };
 static const char* const MIX_NAME[5] = {
@@ -699,7 +699,10 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
             }
         }
 
-        float drumMix = drums.Process() * drumsGainEff;
+        /* Ganancia de drums: reducida en FINALE para evitar saturación
+         * (gallop kick + 16th hats + ride + crash acumulan mucho RMS) */
+        float dGain = drumsGainEff * ((cur.flags & FLAG_FINALE) ? 0.70f : 1.0f);
+        float drumMix = drums.Process() * dGain;
 
         /* Delay ping-pong */
         size_t rpL = (dlyWp + DLY_SIZE - dlyTimeL) % DLY_SIZE;
@@ -710,24 +713,24 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         float fmMix = 0.0f;
         for(int v = 0; v < NUM_FM; v++)
             fmMix += fmv[v].Process();
-        fmMix *= 0.45f;
+        fmMix *= 0.30f;   /* escalado global; anthem melody activa 8 voces */
 
-        float bassMix = bass.Process() * 0.9f;
+        float bassMix = bass.Process() * 0.85f;
 
         /* Alimentar delay (cross-feed L↔R) */
-        dlyBufL[dlyWp] = drumMix * 0.16f + fmMix * 0.20f + dR * dlyFb;
-        dlyBufR[dlyWp] = drumMix * 0.16f + fmMix * 0.20f + dL * dlyFb;
+        dlyBufL[dlyWp] = drumMix * 0.14f + fmMix * 0.18f + dR * dlyFb;
+        dlyBufR[dlyWp] = drumMix * 0.14f + fmMix * 0.18f + dL * dlyFb;
         dlyWp = (dlyWp + 1) % DLY_SIZE;
 
-        float dryL = drumMix * 0.9f + fmMix + bassMix + dL * 0.5f;
-        float dryR = drumMix * 0.9f + fmMix + bassMix + dR * 0.5f;
+        float dryL = drumMix * 0.85f + fmMix * 0.80f + bassMix + dL * 0.40f;
+        float dryR = drumMix * 0.85f + fmMix * 0.80f + bassMix + dR * 0.40f;
 
         /* Reverb sobre FM + colas del delay */
         float wetL, wetR;
-        reverb.Process(fmMix + dL * 0.4f, fmMix + dR * 0.4f, &wetL, &wetR);
+        reverb.Process(fmMix * 0.80f + dL * 0.35f, fmMix * 0.80f + dR * 0.35f, &wetL, &wetR);
 
-        float outL = (dryL + wetL * 0.45f) * masterGain;
-        float outR = (dryR + wetR * 0.45f) * masterGain;
+        float outL = (dryL + wetL * 0.40f) * masterGain;
+        float outR = (dryR + wetR * 0.40f) * masterGain;
 
         float sL = tanhf(outL * 0.7f);
         float sR = tanhf(outR * 0.7f);

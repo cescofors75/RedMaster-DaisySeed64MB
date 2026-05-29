@@ -352,7 +352,7 @@ static const Section SECTIONS[] = {
 {   8, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 14 Buildup          */
 {  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_8TH,    5,  5, PRE_STAB, 1100, 0.88f, 0.65f, 0.45f,  0, FLAG_CRASH,      4, TMIX_STRIP  }, /* 15 Peak drop        */
 {   8, KICK_GALLOP,SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,   -1,  3, PRE_PLUCK, 420, 0.82f, 0.60f, 0.22f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
-{  48, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_OFF,  RIDE_8TH,    5,  1, PRE_MARIMBA,1100,0.88f, 0.52f, 0.25f,  0, FLAG_FINALE,    8, TMIX_WASH }, /* 17 FINAL DROP */
+{  48, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_NONE, HHO_NONE, RIDE_8TH,    5,  3, PRE_PLUCK,  1100,0.86f, 0.40f, 0.20f,  0, FLAG_FINALE,    8, TMIX_WASH }, /* 17 FINAL DROP */
 {   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 18 Reset            */
 };
 static constexpr int NUM_SECTIONS = (int)(sizeof(SECTIONS)/sizeof(SECTIONS[0]));
@@ -382,7 +382,7 @@ static const char* const SEC_FX[NUM_SECTIONS] = {
     "riser: snare roll, density f(progress)",
     "peak: stab FM (fast), sub octaves rolling",
     "riser: pluck FM (short), gallop kick, snare roll",
-    "FINAL: crash/bar, rolling bass, acid arp, ride 8th",
+    "FINAL: crash/bar, rolling bass, minimal pluck, ride 8th, NO-reverb",
     "reset -> loop back to intro"
 };
 static const char* const MIX_NAME[5] = {
@@ -421,13 +421,15 @@ static constexpr bool kMonitor = true;   /* monitor serial USB on/off */
 static volatile bool     monSecChanged = true;
 static volatile int      monSec        = 0;
 static volatile uint32_t monBar        = 0;
-static volatile float    monVU         = 0.0f;  /* pico 0..1            */
+static volatile float    monVU         = 0.0f;
 static volatile float    monTransOut   = 0.0f;
 static volatile uint8_t  monMode       = 0;
 static volatile float    monCutoff     = 420.0f;
 static volatile float    monRev        = 0.80f;
 static volatile float    monDly        = 0.45f;
-static float monVuPeak = 0.0f;                   /* acumulador (callback)*/
+static volatile int      monStep16     = 0;      /* paso actual 0-15       */
+static volatile uint8_t  monFmVoices   = 0;      /* voces FM activas       */
+static float monVuPeak = 0.0f;
 
 /* ── Estado de transición ─────────────────────────────────────────
  *  transOut:    0→1 durante los últimos transOutBars de la sección.
@@ -561,11 +563,10 @@ static void SequencerTick()
         if(step16==6 || step16==14)              drums.Trigger(TR909::INST_HI_PERC, 0.4f);
     }
 
-    /* ── FINALE: crash/compás + perc rodante ── */
+    /* ── FINALE: crash en cada compás (limpio, sin solapamiento) ── */
     if(cur.flags & FLAG_FINALE){
-        if(step16==0)               drums.Trigger(TR909::INST_CRASH, 0.45f);
-        if(step16 % 4 == 2)         drums.Trigger(TR909::INST_SHAKER, 0.38f); /* offbeat, 4/bar */
-        if(step16==2 || step16==10) drums.Trigger(TR909::INST_LOW_TOM, 0.55f);
+        if(step16 == 0)  drums.Trigger(TR909::INST_CRASH,   0.42f);
+        if(step16 == 10) drums.Trigger(TR909::INST_LOW_TOM, 0.48f);
     }
 
     /* ── MELODÍA FM ── */
@@ -725,9 +726,12 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         float dryL = drumMix * 0.85f + fmMix * 0.80f + bassMix + dL * 0.40f;
         float dryR = drumMix * 0.85f + fmMix * 0.80f + bassMix + dR * 0.40f;
 
-        /* Reverb sobre FM + colas del delay */
-        float wetL, wetR;
-        reverb.Process(fmMix * 0.80f + dL * 0.35f, fmMix * 0.80f + dR * 0.35f, &wetL, &wetR);
+        /* Reverb sobre FM + colas del delay.
+         * Bypass en FLAG_FINALE: ReverbSc es la op más cara (~20% CPU/smp)
+         * y en el drop ya hay suficiente energía sin cola de reverb. */
+        float wetL = 0.0f, wetR = 0.0f;
+        if(!(cur.flags & FLAG_FINALE))
+            reverb.Process(fmMix * 0.80f + dL * 0.35f, fmMix * 0.80f + dR * 0.35f, &wetL, &wetR);
 
         float outL = (dryL + wetL * 0.40f) * masterGain;
         float outR = (dryR + wetR * 0.40f) * masterGain;
@@ -743,7 +747,7 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
     }
 
     /* Publicar estado para el monitor (sólo stores; sin printf aquí) */
-    monVuPeak  *= 0.6f;          /* decaimiento suave entre bloques */
+    monVuPeak  *= 0.6f;
     monVU       = monVuPeak;
     monBar      = (uint32_t)secBar;
     monTransOut = transOut;
@@ -751,6 +755,11 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
     monCutoff   = bassCutoffEff;
     monRev      = revFb;
     monDly      = dlyFb;
+    monStep16   = step16;
+    /* contar voces FM activas */
+    uint8_t fmAct = 0;
+    for(int v = 0; v < NUM_FM; v++) if(fmv[v].IsActive()) fmAct++;
+    monFmVoices = fmAct;
 
     ledLevel *= 0.85f;
     hw.SetLed(ledLevel > 0.2f);
@@ -782,44 +791,77 @@ static void RenderBar(float level, int width, char fill, char* buf)
     buf[p] = '\0';
 }
 
-/* Banner completo al entrar una sección (llamado desde main loop) */
+/* Render indicador de paso actual en 16 posiciones */
+static void RenderStepPos(int stp, char* buf)
+{
+    int p = 0;
+    for(int s = 0; s < 16; s++){
+        buf[p++] = (s == stp) ? '>' : '.';
+        if((s & 3) == 3 && s != 15){ buf[p++] = '|'; }
+    }
+    buf[p] = '\0';
+}
+
+/* Barra de progreso de compás dentro de sección: "=====>----" */
+static void RenderProgress(int bar, int bars, int width, char* buf)
+{
+    int n = (bars > 1) ? ((bar - 1) * width / (bars - 1)) : width;
+    if(n < 0) n = 0; if(n > width) n = width;
+    int p = 0;
+    for(int i = 0; i < width; i++)
+        buf[p++] = (i < n) ? (i == n-1 ? '>' : '=') : '-';
+    buf[p] = '\0';
+}
+
+/* Banner completo al entrar una sección */
 static void MonitorBanner(int idx)
 {
     if(!kMonitor) return;
     const Section& s = SECTIONS[idx];
-    char kp[48], hp[48];
+    char kp[52], rp[52];
     RenderPattern(s.kick, kp);
-    RenderPattern(s.hhc,  hp);
+    RenderPattern(s.ride, rp);
 
-    int swMs10 = (int)((float)s.swing / SAMPLE_RATE * 10000.0f); /* ms*10 */
+    int swMs10 = (int)((float)s.swing / SAMPLE_RATE * 10000.0f);
+
+    /* separador visual proporcional a la sección */
+    const char* energy = (s.flags & FLAG_FINALE) ? "!!!!!!" :
+                         (s.flags & FLAG_BUILDUP) ? ">>>..." :
+                         (s.flags & FLAG_CRASH)   ? "***..." : "------";
 
     hw.PrintLine("");
     hw.PrintLine("+==================================================+");
-    hw.PrintLine("| [%2d/%2d] %-24s %3d bars |", idx + 1, NUM_SECTIONS,
-                 SEC_NAME[idx], (int)s.bars);
+    hw.PrintLine("| [%2d/%2d] %-26s%3d bars |",
+                 idx+1, NUM_SECTIONS, SEC_NAME[idx], (int)s.bars);
+    hw.PrintLine("|  %s  BPM=%d  block=%lu smp/step             |",
+                 energy, (int)BPM, (unsigned long)kStepSamples);
     hw.PrintLine("+==================================================+");
-    hw.PrintLine("  BPM %d   T_step = SR*60/(BPM*4) = %lu smp",
-                 (int)BPM, (unsigned long)kStepSamples);
     if(s.swing)
-        hw.PrintLine("  swing: T_even=T+%d  T_odd=T-%d smp  (~%d.%dms)",
+        hw.PrintLine("  swing  T+=%-3d T-=%-3d smp  (~%d.%d ms)",
                      (int)s.swing, (int)s.swing, swMs10/10, swMs10%10);
     hw.PrintLine("  kick : %s", kp);
-    hw.PrintLine("  hats : %s", hp);
+    hw.PrintLine("  ride : %s", rp);
     if(s.bassPat >= 0)
-        hw.PrintLine("  bass : pat#%d  cutoff->%dHz  Q=0.%02d",
-                     (int)s.bassPat, (int)s.bassCutoff, (int)(s.bassReso*100));
+        hw.PrintLine("  bass : pat#%d  fc=%dHz  Q=%.2f",
+                     (int)s.bassPat, (int)s.bassCutoff, s.bassReso);
     else
-        hw.PrintLine("  bass : (none)");
+        hw.PrintLine("  bass : --");
+    if(s.melPat >= 0)
+        hw.PrintLine("  mel  : pat#%d  preset=%d  fm_voices<=%d",
+                     (int)s.melPat, (int)s.fmPreset, NUM_FM);
+    else
+        hw.PrintLine("  mel  : --");
     hw.PrintLine("  FX   : %s", SEC_FX[idx]);
     if(s.transOutBars)
-        hw.PrintLine("  mix>>: %s  (%d bars before end)",
+        hw.PrintLine("  mix>>: %s  (%d bars out)",
                      MIX_NAME[s.transMode], (int)s.transOutBars);
-    hw.PrintLine("  rev fb=0.%02d  dly fb=0.%02d",
-                 (int)(s.revFb*100), (int)(s.dlyFb*100));
+    hw.PrintLine("  reverb=%s  rev=%.2f  dly=%.2f",
+                 (s.flags & FLAG_FINALE) ? "BYPASS" : "ON",
+                 s.revFb, s.dlyFb);
     hw.PrintLine("--------------------------------------------------");
 }
 
-/* Línea viva: barra de compás + VU + FX + estado de transición */
+/* Línea viva cada compás */
 static void MonitorLive()
 {
     if(!kMonitor) return;
@@ -828,19 +870,25 @@ static void MonitorLive()
     float  tout  = monTransOut;
     int    bar   = (int)monBar + 1;
     int    bars  = (int)SECTIONS[idx].bars;
+    int    stp   = monStep16;
+    int    fmv_n = (int)monFmVoices;
+    int    beat  = stp / 4 + 1;   /* 1-4 */
 
-    char vubar[24];
-    RenderBar(vu, 20, '#', vubar);
+    char vubar[24], stepbuf[24], progbuf[14];
+    RenderBar(vu, 16, '#', vubar);
+    RenderStepPos(stp, stepbuf);
+    RenderProgress(bar, bars, 12, progbuf);
 
     if(tout > 0.001f){
-        char tbar[16];
-        RenderBar(tout, 12, '>', tbar);
-        hw.PrintLine(" bar %02d/%02d VU[%s] MIX:%s [%s]",
-                     bar, bars, vubar, MIX_NAME[monMode], tbar);
+        char tbar[14];
+        RenderBar(tout, 10, '>', tbar);
+        hw.PrintLine(" B%d s%02d [%s] VU[%s] [%s] >>%s %s",
+                     beat, stp, stepbuf, vubar, progbuf,
+                     MIX_NAME[monMode], tbar);
     } else {
-        hw.PrintLine(" bar %02d/%02d VU[%s] cut=%dHz rev0.%02d dly0.%02d",
-                     bar, bars, vubar, (int)monCutoff,
-                     (int)(monRev*100), (int)(monDly*100));
+        hw.PrintLine(" B%d s%02d [%s] VU[%s] [%s] fc=%d rev%.2f fm:%d",
+                     beat, stp, stepbuf, vubar, progbuf,
+                     (int)monCutoff, monRev, fmv_n);
     }
 }
 

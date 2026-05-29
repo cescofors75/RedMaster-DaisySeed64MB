@@ -161,10 +161,10 @@ static void ApplyPreset(FM2Op::Synth& v, uint8_t preset)
             v.params.mAtk=0.003f; v.params.mDec=0.5f; v.params.mSus=0.1f;  v.params.mRel=0.3f;
             v.params.volume=0.5f; break;
         case PRE_SUPER:
-            v.params.algo=1; v.params.ratio=2.0f; v.params.index=4.0f;
-            v.params.feedback=0.2f; v.params.detune=12.0f; v.params.velSens=0.5f;
-            v.params.cAtk=0.006f; v.params.cDec=0.6f; v.params.cSus=0.6f; v.params.cRel=0.45f;
-            v.params.mAtk=0.006f; v.params.mDec=0.4f; v.params.mSus=0.4f; v.params.mRel=0.3f;
+            v.params.algo=1; v.params.ratio=1.0f; v.params.index=2.2f;
+            v.params.feedback=0.1f; v.params.detune=9.0f; v.params.velSens=0.5f;
+            v.params.cAtk=0.008f; v.params.cDec=0.6f; v.params.cSus=0.55f; v.params.cRel=0.45f;
+            v.params.mAtk=0.008f; v.params.mDec=0.4f; v.params.mSus=0.35f; v.params.mRel=0.3f;
             v.params.volume=0.30f; break;
     }
 }
@@ -351,8 +351,8 @@ static const Section SECTIONS[] = {
 {  24, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_NONE, RIDE_NONE,   0,  3, PRE_MARIMBA,500,0.70f, 0.60f, 0.50f, 12, FLAG_TOMS,       4, TMIX_STRIP  }, /* 13 Tribal perc      */
 {   8, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 14 Buildup          */
 {  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_8TH,    5,  5, PRE_BELL, 1100, 0.88f, 0.65f, 0.45f,  0, FLAG_CRASH,      4, TMIX_STRIP  }, /* 15 Peak drop        */
-{   8, KICK_GALLOP,SNR_BACK, SNR_BACK, HHC_16TH, HHO_NONE, RIDE_16TH,  -1,  8, PRE_SUPER,1400, 0.85f, 0.88f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
-{  48, KICK_GALLOP,SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_16TH,   8,  8, PRE_SUPER,1600, 0.88f, 0.70f, 0.50f,  0, FLAG_FINALE|FLAG_FUNK, 8, TMIX_ECHO }, /* 17 FINAL DROP */
+{   8, KICK_GALLOP,SNR_BACK, SNR_BACK, HHC_16TH, HHO_NONE, RIDE_16TH,  -1,  8, PRE_SUPER,1400, 0.85f, 0.80f, 0.32f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
+{  48, KICK_GALLOP,SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_16TH,   8,  8, PRE_SUPER,1500, 0.86f, 0.60f, 0.32f,  0, FLAG_FINALE|FLAG_FUNK, 8, TMIX_WASH }, /* 17 FINAL DROP */
 {   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 18 Reset            */
 };
 static constexpr int NUM_SECTIONS = (int)(sizeof(SECTIONS)/sizeof(SECTIONS[0]));
@@ -382,7 +382,7 @@ static const char* const SEC_FX[NUM_SECTIONS] = {
     "riser: snare roll, density f(progress)",
     "peak: full mix, sub octaves rolling",
     "riser: supersaw, reverb fb->0.95",
-    "FINAL: crash/bar, sub 16th, anthem, supersaw",
+    "FINAL: crash/bar, sub 16th, anthem, warm saw",
     "reset -> loop back to intro"
 };
 static const char* const MIX_NAME[5] = {

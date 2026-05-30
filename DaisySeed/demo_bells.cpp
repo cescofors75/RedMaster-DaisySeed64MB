@@ -48,6 +48,7 @@
 #define USE_DAISYSP_LGPL
 #include "daisysp.h"
 #include <math.h>
+#include <cstdio>   /* snprintf para el monitor */
 
 /* ── Fast math: sinf parabólico + expf bit-trick ── */
 static inline float __fast_sinf(float x) {
@@ -692,7 +693,13 @@ static volatile uint8_t  monFmVoices   = 0;      /* voces del lead activas */
 static volatile uint8_t  monDrum       = 0;      /* DrumKit activo         */
 static volatile uint8_t  monBass       = 0;      /* BassEng activo         */
 static volatile uint8_t  monLead       = 0;      /* LeadEng activo         */
+static volatile float    monCpu        = 0.0f;   /* carga de CPU 0..1      */
+static volatile float    monCpuMax     = 0.0f;   /* pico de CPU 0..1       */
+static volatile uint32_t monGlobalBar  = 0;      /* compás absoluto del set */
 static float monVuPeak = 0.0f;
+
+/* Medidor de carga de CPU del audio callback (DaisySP) */
+static CpuLoadMeter cpuMeter;
 
 /* ── Estado de transición ─────────────────────────────────────────
  *  transOut:    0→1 durante los últimos transOutBars de la sección.
@@ -973,6 +980,8 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
                    AudioHandle::OutputBuffer  out,
                    size_t                     size)
 {
+    cpuMeter.OnBlockStart();
+
     /* ── Automatización de FX según transOut + transMode ─────────────
      *
      *  TMIX_FILTER: EQ-out: el bass LPF cierra hasta 80 Hz (sub desaparece).
@@ -1164,6 +1173,14 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
     monDrum     = curDrumKit;
     monBass     = curBassEng;
     monLead     = curLeadEng;
+    monGlobalBar = barCounter;
+
+    /* Carga de CPU: media del bloque + pico sostenido (decae lento) */
+    cpuMeter.OnBlockEnd();
+    float cpu = cpuMeter.GetAvgCpuLoad();
+    monCpu = cpu;
+    if(cpu > monCpuMax) monCpuMax = cpu;
+    else                monCpuMax += (cpu - monCpuMax) * 0.001f;  /* decae lento */
 
     ledLevel *= 0.85f;
     hw.SetLed(ledLevel > 0.2f);
@@ -1335,10 +1352,23 @@ static void MonitorBanner(int idx)
        (s.bassPat >= 0) ? BE_NAME[e.bass] : "--", C(A_RST),
        (s.melPat  >= 0) ? C(A_BMAG) : C(A_DIM),
        (s.melPat  >= 0) ? LE_NAME[e.lead] : "--", C(A_RST));
+    /* ── Estado del DSP en el cambio de sección (CPU, block, latencia) ── */
+    {
+        int cpuPct = (int)(monCpu * 100.0f + 0.5f);
+        int cpuMax = (int)(monCpuMax * 100.0f + 0.5f);
+        const char* cpuCol = (cpuPct >= 80) ? C(A_BRED) : (cpuPct >= 60) ? C(A_BYEL) : C(A_BGRN);
+        float blkMs = (float)AUDIO_BLOCK / SAMPLE_RATE * 1000.0f;
+        PL("  %sDSP%s    cpu=%s%d%%%s peak=%d%%  block=%lu (%.1f ms)  SR=%dk",
+           C(A_BWHT), C(A_RST), cpuCol, cpuPct, C(A_RST), cpuMax,
+           (unsigned long)AUDIO_BLOCK, blkMs, (int)(SAMPLE_RATE/1000.0f));
+    }
     PL("%s--------------------------------------------------%s", C(A_DIM), C(A_RST));
 }
 
-/* Línea viva cada compás */
+/* Una línea por compás que SE ACUMULA (no se sobrescribe): el terminal
+ * va dibujando el tracklist completo hacia abajo, compás a compás.
+ * Formato fijo por columnas para que se lea como una lista:
+ *   [sec] BAR bb/BB [progreso] VU[....] DRUM/BASS/LEAD  chord  fc  v:n  <estado mix> */
 static void MonitorLive()
 {
     if(!kMonitor) return;
@@ -1347,62 +1377,56 @@ static void MonitorLive()
     float  tout  = monTransOut;
     int    bar   = (int)monBar + 1;
     int    bars  = (int)SECTIONS[idx].bars;
-    int    stp   = monStep16;
     int    fmv_n = (int)monFmVoices;
-    int    beat  = stp / 4 + 1;   /* 1-4 */
 
     /* Acorde actual si la sección tiene progresión armónica */
     const Section& sLive = SECTIONS[idx];
-    const char* chord = nullptr;
+    const char* chord = "  ";
     if(sLive.bars >= 20 && !(sLive.flags & (FLAG_BUILDUP | FLAG_FINALE))){
-        static const char* const CHORD_NAME[4] = { "Am", "Dm", "Em", "C" };
+        static const char* const CHORD_NAME[4] = { "Am", "Dm", "Em", "C " };
         chord = CHORD_NAME[((bar - 1) / kHarmBars) % 4];
     }
 
-    char vubar[160], stepbuf[24], progbuf[14];
-    RenderVuColor(vu, 16, vubar);
-    RenderStepPos(stp, stepbuf);
-    RenderProgress(bar, bars, 12, progbuf);
+    char vubar[160], progbuf[14];
+    RenderVuColor(vu, 10, vubar);
+    RenderProgress(bar, bars, 10, progbuf);
 
     const char* col   = SecColor(idx);
-    /* color de fm voices: verde pocas, amarillo medio, rojo saturado */
     const char* fmCol = (fmv_n >= 7) ? C(A_BRED) : (fmv_n >= 5) ? C(A_BYEL) : C(A_BGRN);
-    /* beat 1 destacado (downbeat) */
-    const char* beatCol = (stp == 0) ? C(A_BWHT) : C(A_DIM);
 
-    float ig = monInGain;
+    /* CPU: verde <60%, amarillo <80%, rojo >=80% (riesgo de underrun) */
+    int cpuPct = (int)(monCpu * 100.0f + 0.5f);
+    const char* cpuCol = (cpuPct >= 80) ? C(A_BRED) : (cpuPct >= 60) ? C(A_BYEL) : C(A_BGRN);
+
+    /* Tiempo absoluto del set: 1 compás = 4 pasos de negra @ BPM */
+    float barSec   = (float)kStepSamples * 16.0f / SAMPLE_RATE;
+    int   totalSec = (int)((float)monGlobalBar * barSec);
+    int   mm = totalSec / 60, ss = totalSec % 60;
+
+    /* Estado de la mezcla: entrando / saliendo / estable */
+    char mixbuf[40];
     float og = monOutGain;
-    if(tout > 0.001f || og < 0.99f){
-        /* Fade-out activo: mostrar barras de crossfade */
-        char tbar[14], obar[14];
-        RenderBar(tout, 8, '>', tbar);
-        RenderBar(1.0f - og, 8, '-', obar);
-        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %s>>%s%s OUT[%s%s%s] fc=%d",
-           beatCol, beat, C(A_RST), stp,
-           col, stepbuf, C(A_RST), vubar,
-           col, progbuf, C(A_RST),
-           C(A_BRED), MIX_NAME[monMode], C(A_RST),
-           C(A_BRED), obar, C(A_RST),
-           (int)monCutoff);
-    } else if(ig < 0.99f){
-        /* Fade-in activo: mostrar progreso de entrada */
-        char ibar[14];
-        RenderBar(ig, 8, '+', ibar);
-        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %sIN[%s%s]%s fc=%d v:%s%d%s",
-           beatCol, beat, C(A_RST), stp,
-           col, stepbuf, C(A_RST), vubar,
-           col, progbuf, C(A_RST),
-           C(A_BGRN), ibar, C(A_RST),
-           C(A_RST), (int)monCutoff, fmCol, fmv_n, C(A_RST));
-    } else {
-        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %s%s/%s/%s%s %s%s%s fc=%d v:%s%d%s",
-           beatCol, beat, C(A_RST), stp,
-           col, stepbuf, C(A_RST), vubar,
-           col, progbuf, C(A_RST),
-           C(A_DIM), DK_NAME[monDrum], BE_NAME[monBass], LE_NAME[monLead], C(A_RST),
-           chord ? C(A_BMAG) : C(A_DIM), chord ? chord : "--", C(A_RST),
-           (int)monCutoff, fmCol, fmv_n, C(A_RST));
-    }
+    if(tout > 0.001f || og < 0.99f)
+        snprintf(mixbuf, sizeof(mixbuf), "%s>> %s %d%%%s",
+                 C(A_BRED), MIX_NAME[monMode], (int)(tout * 100.0f), C(A_RST));
+    else if(monInGain < 0.99f)
+        snprintf(mixbuf, sizeof(mixbuf), "%sIN %d%%%s",
+                 C(A_BGRN), (int)(monInGain * 100.0f), C(A_RST));
+    else
+        mixbuf[0] = '\0';
+
+    /* Línea de tracklist: prefijo con número de sección para escanearla rápido.
+     *   [sec] mm:ss bbb/BB [prog] VU[....] DRUM/BASS/LEAD chord fc v:n cpu%% <mix> */
+    PL(" %s[%2d]%s %s%d:%02d%s %sb%02d/%02d%s [%s%s%s] VU[%s] %s%s/%s/%s%s %s%s%s fc=%-4d v:%s%d%s cpu:%s%2d%%%s %s",
+       col, idx + 1, C(A_RST),
+       C(A_DIM), mm, ss, C(A_RST),
+       C(A_BWHT), bar, bars, C(A_RST),
+       col, progbuf, C(A_RST), vubar,
+       C(A_DIM), DK_NAME[monDrum], BE_NAME[monBass], LE_NAME[monLead], C(A_RST),
+       C(A_BMAG), chord, C(A_RST),
+       (int)monCutoff, fmCol, fmv_n, C(A_RST),
+       cpuCol, cpuPct, C(A_RST),
+       mixbuf);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1485,6 +1509,9 @@ int main()
 
     for(size_t i = 0; i < DLY_SIZE; i++){ dlyBufL[i] = 0.0f; dlyBufR[i] = 0.0f; }
 
+    /* Medidor de CPU: sabe el SR y el tamaño de bloque para calcular % */
+    cpuMeter.Init(SAMPLE_RATE, AUDIO_BLOCK);
+
     secIdx = 0; secBar = 0;
     EnterSection();
 
@@ -1504,20 +1531,23 @@ int main()
         PL("%s%s###################################################%s", C(A_BOLD), C(A_BRED), C(A_RST));
     }
 
-    /* ── Monitor loop: banner al cambiar de sección + línea viva ── */
-    uint32_t liveTick = 0;
+    /* ── Monitor loop: banner al cambiar de sección + 1 línea por compás ──
+     *  Cada compás imprime UNA línea nueva (no se sobrescribe): el terminal
+     *  va acumulando la lista completa del track, como un tracklist en vivo
+     *  que crece hacia abajo. Detectamos el cambio de compás por monBar. */
+    uint32_t lastBar = 0xFFFFFFFFu;
     while(1){
         if(monSecChanged){
             monSecChanged = false;
             MonitorBanner(monSec);
-            liveTick = 0;
+            lastBar = 0xFFFFFFFFu;   /* fuerza imprimir el 1er compás */
         }
-        /* Línea viva ~cada 500 ms (2 Hz) */
-        if(kMonitor && (++liveTick >= 5)){
-            liveTick = 0;
+        /* Una línea por compás nuevo */
+        if(kMonitor && monBar != lastBar){
+            lastBar = monBar;
             MonitorLive();
         }
-        System::Delay(100);
+        System::Delay(40);
     }
 }
 

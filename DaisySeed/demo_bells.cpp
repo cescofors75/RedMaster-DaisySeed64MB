@@ -19,24 +19,24 @@
  *  igual que el DJ al subir el EQ después de mezclar.
  *
  *  Recorrido (loop infinito, ~9.7 min/vuelta · "tight set"):
- *     1  Detroit intro          bells hipnóticas, 8 bars (intro directo)
- *     2  Detroit groove         kick + ride + bells + bass
+ *     1  Detroit intro          bells hipnóticas + whoosh largo de entrada
+ *     2  Detroit groove         kick + ride + bells + bass (drop con crash)
  *     3  Breakdown              mini-respiro 4 bars antes del acid
  *     4  Acid house             303 ácido wormy + pluck FM
  *     5  Acid peak              303 abierto al máximo
  *     6  UK garage / 2-step     Fred again..: shuffle, EP cálido
- *     7  Organic house emotivo  4x4 suave, EP, octavas (DIFERENCIADO)
+ *     7  Organic house emotivo  4x4 suave, EP, octavas
  *     8  Deep house             swing, claps, stabs
  *     9  Funky electro          slap bass, rimshots, síncopa
  *    10  Micro-break            sin kick, fc=200, reverb wash (CONTRASTE)
  *    11  Minimal techno         sparse, dub delay profundo
- *    12  Electro / break        kick sincopado, hats 16th
- *    13  Trance supersaw        supersaw arp FM, reverb enorme (PRE_SUPER)
- *    14  Tribal percussion      toms + perc + stab chords (DIFERENCIADO)
- *    15  Buildup                snare roll + riser de reverb
- *    16  Peak-time drop         anthem riff (mel8) + pluck, máxima energía
- *    17  Final buildup          riser + gallop kick + snare roll
- *    18  FINAL DROP explosivo   crash/compás, rolling bass, pluck, NO-rev
+ *    12  Trance supersaw        supersaw arp FM + sub, reverb enorme
+ *    13  Tribal percussion      toms + perc + stab chords
+ *    14  Buildup                snare roll + riser de reverb
+ *    15  Peak-time drop         anthem riff (mel8) + pluck, máxima energía
+ *    16  Final buildup          riser + gallop kick + snare roll
+ *    17  FINAL DROP             driving bass16 + peak riff, crash/compás (SLAM)
+ *    18  APOTEOSIS              anthem mel8 + bass16, tom fills, LOCURA!!!
  *    19  Reset                  silencio breve → vuelve al inicio
  *
  *  Build:  build_daisy.ps1 -DemoBells   (o make DEMO_BELLS=1)
@@ -497,8 +497,9 @@ static const Section SECTIONS[] = {
 {  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 14 Buildup          */
 {  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_8TH,    5,  8, PRE_PLUCK,1100, 0.88f, 0.65f, 0.45f,  0, FLAG_CRASH,      4, TMIX_STRIP  }, /* 15 Peak drop        */
 {  16, KICK_GALLOP,SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,   -1,  3, PRE_PLUCK, 420, 0.82f, 0.60f, 0.22f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
-{  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_NONE, HHO_NONE, RIDE_8TH,    5,  3, PRE_PLUCK, 1100,0.86f, 0.40f, 0.20f,  0, FLAG_FINALE,    8, TMIX_WASH }, /* 17 FINAL DROP */
-{   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 18 Reset            */
+{  16, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_NONE, HHO_NONE, RIDE_8TH,    8,  5, PRE_PLUCK, 1100,0.86f, 0.40f, 0.20f,  0, FLAG_FINALE,    0, TMIX_NONE   }, /* 17 FINAL DROP       */
+{  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_8TH,    8,  8, PRE_PLUCK, 1300,0.88f, 0.45f, 0.22f,  0, FLAG_FINALE,    8, TMIX_WASH   }, /* 18 APOTEOSIS        */
+{   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 19 Reset            */
 };
 static constexpr int NUM_SECTIONS = (int)(sizeof(SECTIONS)/sizeof(SECTIONS[0]));
 
@@ -508,7 +509,7 @@ static const char* const SEC_NAME[NUM_SECTIONS] = {
     "ACID PEAK", "UK GARAGE 2-STEP", "ORGANIC HOUSE", "DEEP HOUSE",
     "FUNKY ELECTRO", "MICRO-BREAK", "MINIMAL TECHNO",
     "TRANCE SUPERSAW", "TRIBAL PERC", "BUILDUP", "PEAK DROP",
-    "FINAL BUILDUP", "FINAL DROP", "RESET"
+    "FINAL BUILDUP", "FINAL DROP", "APOTEOSIS", "RESET"
 };
 static const char* const SEC_FX[NUM_SECTIONS] = {
     "ring-mod bell: y=sin(wc.t)*sin(wm.t), r=1.41",
@@ -527,7 +528,8 @@ static const char* const SEC_FX[NUM_SECTIONS] = {
     "riser: snare roll, density f(progress)",
     "peak: anthem riff mel8 + pluck FM short",
     "riser: pluck FM (short), gallop kick, snare roll",
-    "FINAL: crash/bar, rolling bass, pluck riff, NO-reverb",
+    "DROP: driving bass16 + peak riff, crash/bar, slam",
+    "APOTEOSIS: anthem mel8 + bass16, tom fills, locura!!!",
     "reset -> loop back to intro"
 };
 static const char* const MIX_NAME[5] = {
@@ -556,8 +558,9 @@ static const char* const SEC_STORY[NUM_SECTIONS] = {
     "Sube... sube... la tension lo invade todo",                 /* 14 */
     "EL CLIMAX. Todos saltan a la vez!",                         /* 15 */
     "Ultima subida. El corazon a mil por hora",                  /* 16 */
-    "EXTASIS TOTAL. Jubileo. Nadie para de bailar!!!",           /* 17 */
-    "La calma. Nada volvera a ser igual... y vuelve a empezar",  /* 18 */
+    "EXTASIS. El drop golpea. Todos saltan a la vez!",           /* 17 */
+    "APOTEOSIS!!! Manos al cielo, no se lo pueden creer!!!",      /* 18 */
+    "La calma. Nada volvera a ser igual... y vuelve a empezar",  /* 19 */
 };
 
 /* ── CURVA DE ENERGIA (dinamica narrativa) ────────────────────────
@@ -584,7 +587,8 @@ static const float SEC_GAIN[NUM_SECTIONS] = {
     1.00f,  /* 15 PEAK DROP                        */
     0.90f,  /* 16 final buildup, dip               */
     1.00f,  /* 17 FINAL DROP, extasis              */
-    0.78f,  /* 18 reset, resolucion                */
+    1.00f,  /* 18 APOTEOSIS, locura total          */
+    0.78f,  /* 19 reset, resolucion                */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -611,7 +615,8 @@ static const EngineSel SEC_ENGINE[NUM_SECTIONS] = {
     { DK_909, BE_303,   LE_FM },  /* 15 Peak drop       */
     { DK_909, BE_303,   LE_FM },  /* 16 Final buildup   */
     { DK_909, BE_303,   LE_FM },  /* 17 Final drop      */
-    { DK_808, BE_303,   LE_FM },  /* 18 Reset           */
+    { DK_909, BE_303,   LE_FM },  /* 18 Apoteosis       */
+    { DK_808, BE_303,   LE_FM },  /* 19 Reset           */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -707,8 +712,20 @@ static void EnterSection()
     bassCutoffEff = (cur.bassPat >= 0) ? 80.0f : cur.bassCutoff; /* empieza cerrado */
     drumsGainEff  = 0.9f;
     outGain      = 1.0f;    /* reset: el tema anterior ya bajó */
-    inGain       = 0.0f;    /* nuevo tema empieza en silencio  */
-    leadGain     = 0.0f;    /* melodía entra más tarde, sutil  */
+
+    /* SLAM vs FADE-IN:
+     *  - Tras un BUILDUP, o al entrar/seguir en el FINALE, el drop debe
+     *    GOLPEAR al instante (sin fade) — es el momento de catarsis.
+     *  - El resto de cambios entran con crossfade suave. */
+    int prevIdx = (secIdx + NUM_SECTIONS - 1) % NUM_SECTIONS;
+    bool slam = (SECTIONS[prevIdx].flags & FLAG_BUILDUP) || (cur.flags & FLAG_FINALE);
+    inGain   = slam ? 1.0f : 0.0f;   /* drums entran de golpe o suben  */
+    leadGain = slam ? 1.0f : 0.0f;   /* melodía idem                   */
+    if(slam && cur.bassPat >= 0){
+        /* el sub también golpea lleno: sin filter-in sweep */
+        transInProg   = 0.0f;
+        bassCutoffEff = cur.bassCutoff;
+    }
 
     /* Seleccionar engines de esta sección. Silenciar el lead saliente
      * para que no queden voces colgando al cambiar de motor. */
@@ -814,10 +831,24 @@ static void SequencerTick()
         if(step16==6 || step16==14)              DrumTrig(G_PERC, 0.4f);
     }
 
-    /* ── FINALE: crash en cada compás (limpio, sin solapamiento) ── */
+    /* ── FINALE: catarsis — crash/compás + fills de toms ascendentes ──
+     *  Slam reforzado en el primer compás de cada fase, redoble de toms
+     *  en el último compás que empuja a la siguiente fase / al reset.
+     *  Energía máxima manteniendo el espectro limpio (sin solapar voces
+     *  de drums en el mismo step). */
     if(cur.flags & FLAG_FINALE){
-        if(step16 == 0)  DrumTrig(G_CRASH, 0.42f);
-        if(step16 == 10) DrumTrig(G_LTOM,  0.48f);
+        bool lastBar = secProg > 0.90f;   /* fill de salida de la fase */
+        /* crash de cada compás; el de la 1ª barra de la fase es un SLAM */
+        if(step16 == 0)  DrumTrig(G_CRASH, (secBar == 0) ? 0.75f : 0.42f);
+        if(step16 == 10 && !lastBar) DrumTrig(G_LTOM, 0.48f);
+        if(lastBar){
+            /* redoble ascendente low→mid + snare creciente */
+            if(step16 == 2)  DrumTrig(G_LTOM, 0.55f);
+            if(step16 == 6)  DrumTrig(G_LTOM, 0.62f);
+            if(step16 == 9)  DrumTrig(G_MTOM, 0.68f);
+            if(step16 == 12) DrumTrig(G_MTOM, 0.75f);
+            if(step16 == 14) DrumTrig(G_SNARE, 0.7f);
+        }
     }
 
     /* ── MELODÍA (lead: FM o Wavetable) ── */
@@ -1373,7 +1404,7 @@ int main()
         PL("%s%s###################################################%s", C(A_BOLD), C(A_BRED), C(A_RST));
         PL("%s%s#%s   %sRED808 JOURNEY%s  -  live monitor  (USB serial) %s%s#%s",
            C(A_BOLD), C(A_BRED), C(A_RST), C(A_BWHT), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
-        PL("%s%s#%s   %s18 secciones / ~9.7 min / 132 BPM%s             %s%s#%s",
+        PL("%s%s#%s   %s19 secciones / ~9.7 min / 132 BPM%s             %s%s#%s",
            C(A_BOLD), C(A_BRED), C(A_RST), C(A_BCYN), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
         PL("%s%s#%s   %s7 engines: 909 808 505 303 SH101 FM WT%s        %s%s#%s",
            C(A_BOLD), C(A_BRED), C(A_RST), C(A_BGRN), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));

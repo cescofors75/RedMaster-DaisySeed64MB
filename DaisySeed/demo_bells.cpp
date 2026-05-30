@@ -646,11 +646,11 @@ static const EngineSel SEC_ENGINE[NUM_SECTIONS] = {
     { DK_909, BE_303,   LE_FM },  /* 10 Micro-break     */
     { DK_505, BE_SH101, LE_WT },  /* 11 Minimal         ← WT */
     { DK_909, BE_303,   LE_FM },  /* 12 Pre-trance rise ← engine change aquí */
-    { DK_909, BE_303,   LE_FM },  /* 13 Trance supersaw */
-    { DK_808, BE_303,   LE_FM },  /* 14 Tribal (congas) */
+    { DK_909, BE_303,   LE_WT },  /* 13 Trance supersaw ← WT saves ~18% CPU */
+    { DK_808, BE_303,   LE_WT },  /* 14 Tribal (congas) ← WT */
     { DK_909, BE_303,   LE_FM },  /* 15 Buildup         */
-    { DK_909, BE_303,   LE_FM },  /* 16 Peak drop       */
-    { DK_909, BE_303,   LE_FM },  /* 17 Final buildup   */
+    { DK_909, BE_303,   LE_WT },  /* 16 Peak drop       ← WT */
+    { DK_909, BE_303,   LE_WT },  /* 17 Final buildup   ← WT */
     { DK_909, BE_303,   LE_FM },  /* 18 Final drop      */
     { DK_909, BE_303,   LE_FM },  /* 19 Apoteosis       */
     { DK_808, BE_303,   LE_FM },  /* 20 Reset           */
@@ -1330,8 +1330,9 @@ static void MonitorBanner(int idx)
     PL("  %skick%s : %s%s%s", C(A_BBLU), C(A_RST), C(A_BWHT), kp, C(A_RST));
     PL("  %sride%s : %s%s%s", C(A_BCYN), C(A_RST), C(A_DIM), rp, C(A_RST));
     if(s.bassPat >= 0)
-        PL("  %sbass%s : pat#%d  fc=%dHz  Q=%.2f",
-           C(A_BGRN), C(A_RST), (int)s.bassPat, (int)s.bassCutoff, s.bassReso);
+        PL("  %sbass%s : pat#%d  fc=%dHz  Q=0.%02d",
+           C(A_BGRN), C(A_RST), (int)s.bassPat, (int)s.bassCutoff,
+           (int)(s.bassReso * 100.0f + 0.5f) % 100);
     else
         PL("  %sbass%s : --", C(A_DIM), C(A_RST));
     if(s.melPat >= 0)
@@ -1347,10 +1348,10 @@ static void MonitorBanner(int idx)
         PL("  %smix>>%s: %s%s%s  (%d bars out)",
            C(A_BRED), C(A_RST), C(A_BRED), MIX_NAME[s.transMode], C(A_RST),
            (int)s.transOutBars);
-    PL("  reverb=%s%s%s  rev=%.2f  dly=%.2f",
+    PL("  reverb=%s%s%s  rev=%d%%  dly=%d%%",
        (s.flags & FLAG_FINALE) ? C(A_BRED) : C(A_BGRN),
        (s.flags & FLAG_FINALE) ? "BYPASS" : "ON", C(A_RST),
-       s.revFb, s.dlyFb);
+       (int)(s.revFb * 100.0f + 0.5f), (int)(s.dlyFb * 100.0f + 0.5f));
     /* ── Rack de engines activos en esta sección ── */
     const EngineSel& e = SEC_ENGINE[idx];
     PL("  %sENGINES%s drum=%s%s%s  bass=%s%s%s  lead=%s%s%s",
@@ -1365,10 +1366,10 @@ static void MonitorBanner(int idx)
         int cpuPct = (int)(monCpu * 100.0f + 0.5f);
         int cpuMax = (int)(monCpuMax * 100.0f + 0.5f);
         const char* cpuCol = (cpuPct >= 80) ? C(A_BRED) : (cpuPct >= 60) ? C(A_BYEL) : C(A_BGRN);
-        float blkMs = (float)AUDIO_BLOCK / SAMPLE_RATE * 1000.0f;
-        PL("  %sDSP%s    cpu=%s%d%%%s peak=%d%%  block=%lu (%.1f ms)  SR=%dk",
+        int blkUs = (int)((float)AUDIO_BLOCK / SAMPLE_RATE * 1000000.0f + 0.5f);
+        PL("  %sDSP%s    cpu=%s%d%%%s peak=%d%%  block=%lu (%d.%02d ms)  SR=48k",
            C(A_BWHT), C(A_RST), cpuCol, cpuPct, C(A_RST), cpuMax,
-           (unsigned long)AUDIO_BLOCK, blkMs, (int)(SAMPLE_RATE/1000.0f));
+           (unsigned long)AUDIO_BLOCK, blkUs / 1000, (blkUs % 1000) / 10);
     }
     PL("%s--------------------------------------------------%s", C(A_DIM), C(A_RST));
 }

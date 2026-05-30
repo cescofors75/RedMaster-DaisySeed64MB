@@ -571,25 +571,25 @@ static const char* const SEC_STORY[NUM_SECTIONS] = {
  *  drops que golpean por contraste. Asi "emociona" de verdad.
  * ─────────────────────────────────────────────────────────────────*/
 static const float SEC_GAIN[NUM_SECTIONS] = {
-    0.78f,  /* 1  intro intimo, casi un susurro    */
-    0.90f,  /* 2  primer groove, la cosa arranca   */
-    0.80f,  /* 3  breakdown, aire                  */
-    0.94f,  /* 4  acid house sube                  */
-    1.00f,  /* 5  acid peak, intensidad            */
-    0.92f,  /* 6  garage groovy                    */
-    0.90f,  /* 7  organic, calido                  */
-    0.93f,  /* 8  deep house                       */
-    0.95f,  /* 9  funky, juguetón                  */
-    0.74f,  /* 10 micro-break, suspense            */
-    0.88f,  /* 11 minimal hipnotico                */
-    1.00f,  /* 12 trance, clímax emocional         */
-    0.97f,  /* 13 tribal, fuego                    */
-    0.90f,  /* 14 buildup, dip antes del drop      */
-    1.00f,  /* 15 PEAK DROP                        */
-    0.90f,  /* 16 final buildup, dip               */
-    1.00f,  /* 17 FINAL DROP, extasis              */
-    1.00f,  /* 18 APOTEOSIS, locura total          */
-    0.78f,  /* 19 reset, resolucion                */
+    0.92f,  /* 1  intro (arranca alto, sin susurros) */
+    0.96f,  /* 2  primer groove                      */
+    0.94f,  /* 3  breakdown (corte de estilo, full)  */
+    0.97f,  /* 4  acid house                         */
+    1.00f,  /* 5  acid peak                          */
+    0.97f,  /* 6  garage                             */
+    0.96f,  /* 7  organic                            */
+    0.97f,  /* 8  deep house                         */
+    0.98f,  /* 9  funky                              */
+    0.94f,  /* 10 micro-break (corte breve, full)    */
+    0.96f,  /* 11 minimal                            */
+    1.00f,  /* 12 trance, clímax                     */
+    1.00f,  /* 13 tribal                             */
+    0.98f,  /* 14 buildup                            */
+    1.00f,  /* 15 PEAK DROP                          */
+    0.98f,  /* 16 final buildup                      */
+    1.00f,  /* 17 FINAL DROP                         */
+    1.00f,  /* 18 APOTEOSIS                          */
+    0.92f,  /* 19 reset (cierre, no bajón)           */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -731,66 +731,42 @@ static void EnterSection()
     revFbTgt     = cur.revFb;
     dlyFbTgt     = cur.dlyFb;
     rideGain     = 0.0f;
-    bassCutoffEff = (cur.bassPat >= 0) ? 80.0f : cur.bassCutoff; /* empieza cerrado */
     drumsGainEff  = 0.9f;
     outGain       = 1.0f;
     drumWashSend  = 0.0f;
 
+    /* ── ENERGÍA CONSTANTE: el beat NUNCA baja de volumen ────────────
+     *  Los drums entran SIEMPRE a tope — el kick es continuo de sección
+     *  a sección (4x4 perpetuo).  La transición es solo TIMBRE (filtro)
+     *  y COLOR (reverb/delay), jamás volumen.
+     *  El único elemento que hace un micro-fade es la MELODÍA, y solo
+     *  para que no aparezca con un click — 2 compases, no es un bajón. */
+    inGain     = 1.0f;
+    inGainStep = 1.0f;
+
     int prevIdx  = (secIdx + NUM_SECTIONS - 1) % NUM_SECTIONS;
-    uint8_t prevMode = SECTIONS[prevIdx].transMode;
     bool slam = (SECTIONS[prevIdx].flags & FLAG_BUILDUP) || (cur.flags & FLAG_FINALE);
 
     if(slam){
-        /* DROP / CATARSIS: todo golpea al instante, sin fade ni filtro */
-        inGain       = 1.0f;
+        /* DROP: todo de golpe, incluida la melodía y el sub lleno */
         leadGain     = 1.0f;
-        inGainStep   = 1.0f;
         leadGainStep = 1.0f;
-        if(cur.bassPat >= 0){
+    } else {
+        /* La melodía entra en ~2 compases (anti-click, no es bajón) */
+        leadGain     = 0.55f;
+        leadGainStep = 1.0f / (2.0f * 16.0f);
+    }
+
+    /* Bajo: filter-in timbral (abre de cerrado al objetivo).  En el
+     *  drop golpea lleno; el resto abre rápido (no es bajada de nivel,
+     *  el volumen del bajo es constante — solo cambia el brillo). */
+    if(cur.bassPat >= 0){
+        if(slam){
             transInProg   = 0.0f;
             bassCutoffEff = cur.bassCutoff;
-        }
-    } else {
-        /* Carácter de entrada según el modo de salida del tema anterior */
-        switch(prevMode){
-            case TMIX_FILTER:
-                /* El bajo sigue abriendo (transInProg ya activo).
-                 * Drums entran plenos desde bar 1 — solo el bajo "entra".
-                 * Lead entra en 4 bars (el groove llega antes que la melodía). */
-                inGain       = 1.0f;
-                leadGain     = 0.0f;
-                inGainStep   = 1.0f;
-                leadGainStep = 1.0f / (4.0f * 16.0f);
-                break;
-            case TMIX_ECHO:
-                /* La sección emerge del espacio de eco.
-                 * Drums arrancan al 35% — ya audibles pero sumergidos en el eco.
-                 * Lead tarda 6 bars en llegar — la armonía aparece después. */
-                inGain       = 0.35f;
-                leadGain     = 0.0f;
-                inGainStep   = 1.0f / (5.0f * 16.0f);
-                leadGainStep = 1.0f / (6.0f * 16.0f);
-                break;
-            case TMIX_WASH:
-                /* Emerge de la nube de reverb — muy suave al principio.
-                 * Drums arrancan al 12%, crecen en 6 bars.
-                 * Lead 8 bars — la melodía es lo último en aparecer. */
-                inGain       = 0.12f;
-                leadGain     = 0.0f;
-                inGainStep   = 1.0f / (6.0f * 16.0f);
-                leadGainStep = 1.0f / (8.0f * 16.0f);
-                /* El bajo también abre desde más alto — no desde 80Hz sino 150Hz */
-                if(cur.bassPat >= 0)
-                    bassCutoffEff = 150.0f;
-                break;
-            default:
-                /* STRIP → SLAM (ya manejado arriba como !slam pero prevMode=STRIP
-                 * en realidad tiene slam via la lógica de FLAGS). Por seguridad: */
-                inGain       = 1.0f;
-                leadGain     = 1.0f;
-                inGainStep   = 1.0f;
-                leadGainStep = 1.0f;
-                break;
+        } else {
+            transInProg   = 1.0f;
+            bassCutoffEff = 200.0f;   /* arranca medio-abierto, no muerto */
         }
     }
 
@@ -973,98 +949,62 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
     if(leadGain < 1.0f) leadGain = Clampf(leadGain + leadGainStep, 0.0f, 1.0f);
 
     /* ── Automatización por modo de transición SALIENTE ─────────────
-     *
-     *  FILTER  : solo el bass LPF cierra (80 Hz).  Drums y lead NO bajan.
-     *            Continuo, timbral.  El kick sigue sonando con toda la energía.
-     *
-     *  ECHO    : lead muere rápido (outGain²).  Drums bajan a la mitad.
-     *            Delay fb → 0.88, ecos casi infinitos.  Nada de silencio:
-     *            el delay llena el hueco que deja la melodía.
-     *
-     *  WASH    : todo cae lento (0.0018/bloque).  Los drums TAMBIÉN entran
-     *            en la reverb (drumWashSend) → se disuelven en la cola,
-     *            no desaparecen.  La reverb sube a 0.97.
-     *
-     *  STRIP   : el kick se queda SOLO al máximo.  Lead a 0.
-     *            Hats eliminados en SequencerTick (stripping).
-     *            Reverb sube para dar ambiente a la tensión rítmica.
-     *
-     *  NONE    : sin transición — corte seco siempre con crash + slam.
+     *  ENERGÍA CONSTANTE — REGLA DE ORO:
+     *    drumsGainEff SIEMPRE 0.9.  El kick/groove NUNCA baja de volumen.
+     *    Salimos a muerte y no paramos: 10 min sin un solo bajón.
+     *  La transición la hacen el FILTRO del bajo (timbre) y el COLOR
+     *  (reverb/delay).  El lead solo cede protagonismo (es melodía, no
+     *  energía) y solo cuando aporta — nunca deja un hueco audible.
      * ─────────────────────────────────────────────────────────────── */
+    drumsGainEff = 0.9f;     /* fijo: el beat no se toca jamás */
     drumWashSend = 0.0f;
 
     if(transOut > 0.0f){
         switch(cur.transMode){
 
             case TMIX_FILTER:
-                /* Bass cierra progresivamente hasta 80 Hz */
-                bassCutoffEff += (Lerp(cur.bassCutoff, 80.0f, transOut) - bassCutoffEff) * 0.035f;
-                /* Drums y lead se QUEDAN al máximo — el cambio es solo timbral */
-                drumsGainEff = 0.9f;
-                outGain      = 1.0f;
-                /* Reverb sube ligeramente para suavizar el cierre del bajo */
-                tRevFb = cur.revFb + (0.87f - cur.revFb) * transOut * 0.5f;
+                /* High-pass del bajo: sube el cutoff (brillo/tensión) en vez
+                 * de matarlo.  El sub se aligera pero el groove sigue a tope. */
+                bassCutoffEff += (Lerp(cur.bassCutoff, cur.bassCutoff * 1.8f + 200.0f,
+                                       transOut) - bassCutoffEff) * 0.035f;
+                tRevFb = cur.revFb + (0.85f - cur.revFb) * transOut * 0.4f;
                 break;
 
             case TMIX_ECHO:
-                /* Delay feedback → 0.88: ecos casi infinitos — llenan el hueco */
-                tDlyFb = cur.dlyFb + (0.88f - cur.dlyFb) * transOut;
-                tRevFb = cur.revFb + (0.88f - cur.revFb) * transOut * 0.6f;
-                /* Bass cierra a la mitad — el sub se retira */
-                bassCutoffEff += (Lerp(cur.bassCutoff, cur.bassCutoff * 0.45f, transOut * 0.8f)
-                                  - bassCutoffEff) * 0.03f;
-                /* Lead muere rápido (cuadrado) — primero desaparece la melodía */
-                outGain += ((1.0f - transOut) - outGain) * 0.007f;
-                drumsGainEff = 0.9f * (0.5f + 0.5f * (1.0f - transOut)); /* baja a 50% */
+                /* Delay throw: ecos que crecen sobre el groove intacto.
+                 * El lead se va a ecos pero la batería sigue clavada. */
+                tDlyFb = cur.dlyFb + (0.85f - cur.dlyFb) * transOut;
+                tRevFb = cur.revFb + (0.86f - cur.revFb) * transOut * 0.5f;
                 break;
 
-            case TMIX_WASH: {
-                /* Reverb a 0.97 → cola gigante que llena el espacio */
-                tRevFb = cur.revFb + (0.97f - cur.revFb) * transOut;
-                tDlyFb = cur.dlyFb + (cur.dlyFb * 1.4f - cur.dlyFb) * transOut * 0.4f;
-                /* Bass cierra suave */
-                bassCutoffEff += (Lerp(cur.bassCutoff, 110.0f, transOut * 0.55f)
-                                  - bassCutoffEff) * 0.018f;
-                /* Todo fade, lento y luxurioso */
-                outGain += ((1.0f - transOut) - outGain) * 0.0018f;
-                drumsGainEff = 0.9f * outGain;
-                /* Los drums entran en reverb — se disuelven, no desaparecen */
-                drumWashSend = transOut * 0.28f;
+            case TMIX_WASH:
+                /* Reverb crece → cola que envuelve, sin tocar el volumen.
+                 * Los drums se ENVÍAN a la reverb (se ensanchan, no bajan). */
+                tRevFb = cur.revFb + (0.93f - cur.revFb) * transOut;
+                tDlyFb = cur.dlyFb + (cur.dlyFb * 1.3f - cur.dlyFb) * transOut * 0.4f;
+                drumWashSend = transOut * 0.22f;
                 break;
-            }
 
             case TMIX_STRIP:
-                /* Bass cierra 35% para limpiar espectro bajo el kick */
-                bassCutoffEff += (Lerp(cur.bassCutoff, cur.bassCutoff * 0.55f, transOut * 0.6f)
-                                  - bassCutoffEff) * 0.022f;
-                /* Reverb sube — da tensión armónica al kick desnudo */
-                tRevFb = cur.revFb + (0.90f - cur.revFb) * transOut * 0.6f;
-                /* KICK SE QUEDA SOLO: drums al máximo, lead desaparece */
-                drumsGainEff = 0.9f;
-                outGain = 1.0f - transOut;  /* lead fade a 0 en la zona de strip */
+                /* Tensión rítmica: hats fuera (SequencerTick), bass se
+                 * abre en brillo y la reverb sube.  El kick MANDA, a tope. */
+                bassCutoffEff += (Lerp(cur.bassCutoff, cur.bassCutoff * 1.5f,
+                                       transOut * 0.6f) - bassCutoffEff) * 0.025f;
+                tRevFb = cur.revFb + (0.88f - cur.revFb) * transOut * 0.5f;
                 break;
 
             default:
-                bassCutoffEff += (cur.bassCutoff - bassCutoffEff) * 0.05f;
-                drumsGainEff   = 0.9f;
-                outGain        = 1.0f;
                 break;
         }
     } else if(transInProg > 0.0f){
-        /* Filter-in sweep: el bajo abre bassCutoffEff → target */
-        float openCutoff = Lerp(bassCutoffEff < 160.0f ? bassCutoffEff : 80.0f,
-                                cur.bassCutoff, 1.0f - transInProg);
-        bassCutoffEff += (openCutoff - bassCutoffEff) * 0.04f;
-        drumsGainEff   = 0.9f;
-        outGain        = 1.0f;
-        drumWashSend   = 0.0f;
+        /* Filter-in del bajo entrante (timbral, el volumen ya es pleno) */
+        float openCutoff = Lerp(200.0f, cur.bassCutoff, 1.0f - transInProg);
+        bassCutoffEff += (openCutoff - bassCutoffEff) * 0.05f;
     } else {
-        /* Estado estable */
+        /* Estable */
         bassCutoffEff += (cur.bassCutoff - bassCutoffEff) * 0.05f;
-        drumsGainEff   = 0.9f;
-        outGain        = 1.0f;
-        drumWashSend   = 0.0f;
     }
+    outGain = 1.0f;   /* el saliente nunca baja de volumen */
 
     /* Aplicar cutoff al bajo activo (por bloque es suficiente) */
     BassSetCutoff(bassCutoffEff);
@@ -1099,12 +1039,11 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
             }
         }
 
-        /* ── Mezcla con fades por elemento ──────────────────────────
-         * drumsGainEff: calculado por modo en la sección de transición.
-         * inGain:  fade-in drums del tema entrante (carácter por modo).
-         * outGain: fade del lead según modo — en FILTER/STRIP solo afecta
-         *          al lead; en ECHO/WASH ya está incluido en drumsGainEff.
-         * leadGain: fade-in lead del tema entrante (siempre más lento). */
+        /* ── Mezcla: ENERGÍA CONSTANTE ──────────────────────────────
+         * drumsGainEff fijo a 0.9 (el beat no baja jamás).  inGain=1.0
+         * siempre (drums entran a tope).  El único micro-fade es leadGain
+         * (2 compases, anti-click de la melodía).  La transición vive en
+         * el FILTRO del bajo y el COLOR (reverb/delay), no en el volumen. */
         float dGain = drumsGainEff
                     * ((cur.flags & FLAG_FINALE) ? 0.70f : 1.0f)
                     * inGain;

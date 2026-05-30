@@ -18,7 +18,7 @@
  *  arranca desde el grave y abre hacia el timbre objetivo de la sección,
  *  igual que el DJ al subir el EQ después de mezclar.
  *
- *  Recorrido (loop infinito, ~10.4 min/vuelta · "tight set"):
+ *  Recorrido (loop infinito, ~9.7 min/vuelta · "tight set"):
  *     1  Detroit intro          bells hipnóticas, 8 bars (intro directo)
  *     2  Detroit groove         kick + ride + bells + bass
  *     3  Breakdown              mini-respiro 4 bars antes del acid
@@ -482,22 +482,21 @@ struct Section {
 static const Section SECTIONS[] = {
 /* bars kick          snare     clap      hhc        hho      ride       bp  mp  pre        cut    res    rev    dly  sw flags            tOB tMode        */
 {   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.80f, 0.45f,  0, FLAG_CRASH,      4, TMIX_WASH   }, /* 1  Detroit intro    */
-{  24, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_8TH,    0,  0, PRE_BELL,  420, 0.82f, 0.72f, 0.45f,  0, FLAG_NONE,       4, TMIX_WASH   }, /* 2  Detroit groove   */
+{  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_8TH,    0,  0, PRE_BELL,  420, 0.82f, 0.72f, 0.45f,  0, FLAG_NONE,       4, TMIX_WASH   }, /* 2  Detroit groove   */
 {   4, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.90f, 0.55f,  0, FLAG_NONE,       2, TMIX_FILTER }, /* 3  Breakdown        */
 {  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_NONE, RIDE_NONE,   1,  1, PRE_PLUCK, 900, 0.90f, 0.45f, 0.40f,  0, FLAG_CRASH,      4, TMIX_FILTER }, /* 4  Acid house       */
 {  16, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_NONE,   1,  1, PRE_PLUCK,1500, 0.94f, 0.40f, 0.50f,  0, FLAG_NONE,       4, TMIX_ECHO   }, /* 5  Acid peak        */
-{  24, KICK_2STEP, SNR_2STEP,SNR_NONE, HHC_GARAGE,HHO_OFF, RIDE_NONE,   6,  7, PRE_KEYS,  780, 0.55f, 0.62f, 0.55f, 22, FLAG_FUNK,       4, TMIX_STRIP  }, /* 6  UK garage 2-step */
+{  16, KICK_2STEP, SNR_2STEP,SNR_NONE, HHC_GARAGE,HHO_OFF, RIDE_NONE,   6,  7, PRE_KEYS,  780, 0.55f, 0.62f, 0.55f, 22, FLAG_FUNK,       4, TMIX_STRIP  }, /* 6  UK garage 2-step */
 {  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_NONE,   2,  6, PRE_KEYS,  650, 0.55f, 0.72f, 0.55f,  0, FLAG_NONE,       4, TMIX_WASH   }, /* 7  Organic house    */
 {  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_OFF,  RIDE_NONE,   2,  2, PRE_STAB,  800, 0.70f, 0.55f, 0.45f, 18, FLAG_CRASH,      4, TMIX_FILTER }, /* 8  Deep house       */
 {  24, KICK_FUNK,  SNR_GHOST,SNR_NONE, HHC_GARAGE,HHO_NONE,RIDE_NONE,   7, -1, PRE_PLUCK, 900, 0.80f, 0.48f, 0.45f, 14, FLAG_FUNK,       4, TMIX_ECHO   }, /* 9  Funky electro    */
 {   4, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1, -1, PRE_BELL,  200, 0.60f, 0.95f, 0.45f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 10 Micro-break      */
 {  20, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_NONE,   3,  3, PRE_MARIMBA,650,0.60f, 0.78f, 0.62f,  0, FLAG_NONE,       4, TMIX_WASH   }, /* 11 Minimal          */
-{  24, KICK_ELECTRO,SNR_GHOST,SNR_NONE,HHC_16TH, HHO_NONE, RIDE_NONE,   4, -1, PRE_PLUCK, 700, 0.85f, 0.50f, 0.40f,  0, FLAG_CRASH,      4, TMIX_FILTER }, /* 12 Electro break    */
 {  28, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_8TH,   -1,  4, PRE_SUPER, 420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       6, TMIX_WASH   }, /* 13 Trance melódico  */
 {  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_NONE, RIDE_NONE,   0,  2, PRE_STAB,  500, 0.70f, 0.60f, 0.50f, 12, FLAG_TOMS,       4, TMIX_STRIP  }, /* 14 Tribal perc      */
-{   8, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 15 Buildup          */
+{  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 15 Buildup          */
 {  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_8TH,    5,  8, PRE_PLUCK,1100, 0.88f, 0.65f, 0.45f,  0, FLAG_CRASH,      4, TMIX_STRIP  }, /* 16 Peak drop        */
-{   8, KICK_GALLOP,SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,   -1,  3, PRE_PLUCK, 420, 0.82f, 0.60f, 0.22f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 17 Final buildup    */
+{  16, KICK_GALLOP,SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,   -1,  3, PRE_PLUCK, 420, 0.82f, 0.60f, 0.22f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 17 Final buildup    */
 {  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_NONE, HHO_NONE, RIDE_8TH,    5,  3, PRE_PLUCK, 1100,0.86f, 0.40f, 0.20f,  0, FLAG_FINALE,    8, TMIX_WASH }, /* 18 FINAL DROP */
 {   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 19 Reset            */
 };
@@ -507,7 +506,7 @@ static constexpr int NUM_SECTIONS = (int)(sizeof(SECTIONS)/sizeof(SECTIONS[0]));
 static const char* const SEC_NAME[NUM_SECTIONS] = {
     "DETROIT INTRO", "DETROIT GROOVE", "BREAKDOWN", "ACID HOUSE",
     "ACID PEAK", "UK GARAGE 2-STEP", "ORGANIC HOUSE", "DEEP HOUSE",
-    "FUNKY ELECTRO", "MICRO-BREAK", "MINIMAL TECHNO", "ELECTRO BREAK",
+    "FUNKY ELECTRO", "MICRO-BREAK", "MINIMAL TECHNO",
     "TRANCE SUPERSAW", "TRIBAL PERC", "BUILDUP", "PEAK DROP",
     "FINAL BUILDUP", "FINAL DROP", "RESET"
 };
@@ -523,7 +522,6 @@ static const char* const SEC_FX[NUM_SECTIONS] = {
     "funk: slap bass + rimshot syncopa",
     "break: no kick, fc=200Hz, reverb wash 0.95",
     "minimal: dub delay fb->0.62, sparse",
-    "electro: kick syncopado, hats 16th",
     "trance: supersaw arp 16th, detune 9",
     "tribal: toms+perc, stab chords, swing 12smp",
     "riser: snare roll, density f(progress)",
@@ -554,14 +552,13 @@ static const EngineSel SEC_ENGINE[NUM_SECTIONS] = {
     { DK_505, BE_303,   LE_FM },  /* 9  Funky electro   */
     { DK_909, BE_303,   LE_FM },  /* 10 Micro-break     */
     { DK_505, BE_SH101, LE_WT },  /* 11 Minimal         ← WT */
-    { DK_909, BE_303,   LE_FM },  /* 12 Electro break   */
-    { DK_909, BE_303,   LE_FM },  /* 13 Trance supersaw */
-    { DK_808, BE_303,   LE_FM },  /* 14 Tribal (congas) */
-    { DK_909, BE_303,   LE_FM },  /* 15 Buildup         */
-    { DK_909, BE_303,   LE_FM },  /* 16 Peak drop       */
-    { DK_909, BE_303,   LE_FM },  /* 17 Final buildup   */
-    { DK_909, BE_303,   LE_FM },  /* 18 Final drop      */
-    { DK_808, BE_303,   LE_FM },  /* 19 Reset           */
+    { DK_909, BE_303,   LE_FM },  /* 12 Trance supersaw */
+    { DK_808, BE_303,   LE_FM },  /* 13 Tribal (congas) */
+    { DK_909, BE_303,   LE_FM },  /* 14 Buildup         */
+    { DK_909, BE_303,   LE_FM },  /* 15 Peak drop       */
+    { DK_909, BE_303,   LE_FM },  /* 16 Final buildup   */
+    { DK_909, BE_303,   LE_FM },  /* 17 Final drop      */
+    { DK_808, BE_303,   LE_FM },  /* 18 Reset           */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1249,7 +1246,7 @@ int main()
         PL("%s%s###################################################%s", C(A_BOLD), C(A_BRED), C(A_RST));
         PL("%s%s#%s   %sRED808 JOURNEY%s  -  live monitor  (USB serial) %s%s#%s",
            C(A_BOLD), C(A_BRED), C(A_RST), C(A_BWHT), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
-        PL("%s%s#%s   %s19 secciones / ~10.4 min / 132 BPM%s            %s%s#%s",
+        PL("%s%s#%s   %s18 secciones / ~9.7 min / 132 BPM%s             %s%s#%s",
            C(A_BOLD), C(A_BRED), C(A_RST), C(A_BCYN), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));
         PL("%s%s#%s   %s7 engines: 909 808 505 303 SH101 FM WT%s        %s%s#%s",
            C(A_BOLD), C(A_BRED), C(A_RST), C(A_BGRN), C(A_RST), C(A_BOLD), C(A_BRED), C(A_RST));

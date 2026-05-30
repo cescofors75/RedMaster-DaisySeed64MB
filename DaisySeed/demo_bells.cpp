@@ -894,6 +894,16 @@ static void SequencerTick()
         }
     }
 
+    /* ── Fill de snare al cerrar la sección (anticipa la transición) ──
+     *  En el ÚLTIMO compás de una sección con groove (no buildup/finale,
+     *  con snare en el patrón) se acelera un mini-redoble en la 2ª mitad
+     *  del compás → empuja hacia el cambio sin romper la energía. */
+    if(!stripping && !(cur.flags & (FLAG_BUILDUP | FLAG_FINALE))
+       && (int)secBar == (int)cur.bars - 1 && cur.snare != SNR_NONE){
+        if(step16 == 8 || step16 == 10 || step16 == 12 || step16 == 14)
+            DrumTrig(G_SNARE, 0.35f + 0.04f * (float)step16);
+    }
+
     /* ── Crash de estructura cada 8 compases en secciones largas ──
      *  Las secciones de ≥20 compases (acid, deep, trance, peak drop…)
      *  reciben un crash suave cada 8 barras para marcar el tiempo y

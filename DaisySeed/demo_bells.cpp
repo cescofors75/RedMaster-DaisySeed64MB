@@ -481,6 +481,7 @@ enum SecFlag : uint8_t {
     FLAG_TOMS    = 1 << 2,  /* toms + perc tribales                */
     FLAG_FINALE  = 1 << 3,  /* crash/compás + perc rodante         */
     FLAG_FUNK    = 1 << 4,  /* rimshot + perc en síncopas          */
+    FLAG_PREVIEW = 1 << 5,  /* "tras la pared": LPF maestro cierra en transOut, snap-open al drop */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -673,6 +674,15 @@ static float masterGain = 1.0f;
 static float revFb    = 0.80f;
 static float revFbTgt = 0.80f;
 
+/* ── Option A "tras la pared": LPF maestro estéreo one-pole.  Cierra durante
+ *  el transOut de la sección con FLAG_PREVIEW (Minimal->Trance): todo el mix
+ *  se hunde como si sonara en la sala de al lado mientras suben la reverb-wash
+ *  y la progresión armónica; al entrar el Trance se abre de golpe + crash.   */
+static float masterLpfL    = 0.0f;
+static float masterLpfR    = 0.0f;
+static float masterLpfCoef = 1.0f;   /* coef one-pole: 1.0 = abierto, baja = amortiguado */
+static float masterLpfTgt  = 1.0f;   /* objetivo, suavizado en el callback              */
+
 /* ═══════════════════════════════════════════════════════════════════
  *  ESTADO COMPARTIDO PARA EL MONITOR SERIAL
  *  Escrito desde el audio callback (sólo stores simples), leído desde
@@ -859,6 +869,15 @@ static void SequencerTick()
             transInProg -= 1.0f / (float)kTransInBars;
             if(transInProg < 0.0f) transInProg = 0.0f;
         }
+
+        /* ── Option A "tras la pared": el LPF maestro cierra a lo largo del
+         *  transOut (0 abierto -> 1 amortiguado).  Todo el groove se hunde
+         *  mientras la reverb-wash y la progresión armónica crecen; al entrar
+         *  el Trance, EnterSection reabre de golpe (snap) + crash.          */
+        if(cur.flags & FLAG_PREVIEW)
+            masterLpfTgt = 1.0f - transOut * 0.90f;   /* 1.0 -> 0.10 */
+        else
+            masterLpfTgt = 1.0f;
     }
 
     /* ── ¿Strip mode activo? suprimir hats/clap en transición saliente ── */
@@ -1149,6 +1168,14 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
 
         float outL = (dryL + wetL * 0.40f) * masterGain;
         float outR = (dryR + wetR * 0.40f) * masterGain;
+
+        /* Option A "tras la pared": LPF maestro one-pole estéreo.  Fuera del
+         * preview masterLpfTgt=1.0 -> coef->1.0 -> passthrough (sin color). */
+        masterLpfCoef += (masterLpfTgt - masterLpfCoef) * 0.0009f;
+        masterLpfL    += (outL - masterLpfL) * masterLpfCoef;
+        masterLpfR    += (outR - masterLpfR) * masterLpfCoef;
+        outL = masterLpfL;
+        outR = masterLpfR;
 
         float sL = FastTanh(outL * 0.7f);
         float sR = FastTanh(outR * 0.7f);

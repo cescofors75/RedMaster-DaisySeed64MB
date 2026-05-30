@@ -65,6 +65,7 @@ energía
 | **WASH** | Reverb wash: cola gigante que envuelve; los drums se ENVÍAN a la reverb (se ensanchan, no bajan). | `revFb → 0.93`, `drumWashSend → 0.22` |
 | **STRIP** | Tensión rítmica: hats/clap fuera, queda el KICK solo. El bajo se abre en brillo. | hats off, `bassCutoff ×1.5`, reverb +0.5 |
 | **slam / corte** | Sin transición: golpe seco + crash. Tras BUILDUP o al entrar FINALE → todo instantáneo. | — |
+| **🧱 WALL → SNAP** | *(Minimal→Trance, 8 bars · FLAG_PREVIEW)* Un LPF maestro estéreo cierra progresivamente y hunde TODO el mix «en la sala de al lado», mientras la reverb-wash y la progresión armónica (Am·Dm·Em) crecen creando expectación. Al entrar el Trance el filtro se **reabre de golpe (snap)** + crash → el espectro completo del supersaw explota. Adiós al cambio brusco de 3 motores. | `masterLpf 1.0→0.10` durante transOut, reset a 1.0 en EnterSection |
 | **🤯 WALL+STUTTER** | *(Minimal→Trance, 8 bars)* El LPF maestro cierra y hunde TODO el groove «en la sala de al lado» (preview tras la pared). En las 2 últimas barras un gate retriggea acelerando 1/8→1/32 (efecto tape-stop/buffer-repeat). En el bar 1 del Trance: SNAP de apertura + crash. Rompe-cabezas garantizado. | `masterLpf 1.0→0.06`, `stutter period 1/8→1/32`, reset al entrar |
 
 **Regla de oro:** *nunca hay silencio ni bajada de volumen*. El beat (`drumsGainEff = 0.9`) y el `outGain = 1.0` son constantes. La transición vive **solo en el timbre** (filtro del bajo) y el **color** (reverb/delay). 10 minutos a muerte sin parar.

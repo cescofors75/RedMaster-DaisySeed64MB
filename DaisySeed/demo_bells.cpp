@@ -482,11 +482,11 @@ struct Section {
 static const Section SECTIONS[] = {
 /* bars kick          snare     clap      hhc        hho      ride       bp  mp  pre        cut    res    rev    dly  sw flags            tOB tMode        */
 {  16, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.80f, 0.45f,  0, FLAG_CRASH,      8, TMIX_WASH   }, /* 1  Detroit intro    */
-{  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_8TH,    0,  0, PRE_BELL,  420, 0.82f, 0.72f, 0.45f,  0, FLAG_NONE,       4, TMIX_WASH   }, /* 2  Detroit groove   */
+{  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_8TH,    0,  0, PRE_BELL,  420, 0.82f, 0.72f, 0.45f,  0, FLAG_CRASH,      4, TMIX_WASH   }, /* 2  Detroit groove   */
 {   4, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.90f, 0.55f,  0, FLAG_NONE,       2, TMIX_FILTER }, /* 3  Breakdown        */
 {  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_NONE, RIDE_NONE,   1,  1, PRE_PLUCK, 900, 0.90f, 0.45f, 0.40f,  0, FLAG_CRASH,      4, TMIX_FILTER }, /* 4  Acid house       */
 {  16, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_NONE,   1,  1, PRE_PLUCK,1500, 0.94f, 0.40f, 0.50f,  0, FLAG_NONE,       4, TMIX_ECHO   }, /* 5  Acid peak        */
-{  16, KICK_2STEP, SNR_2STEP,SNR_NONE, HHC_GARAGE,HHO_OFF, RIDE_NONE,   6,  7, PRE_KEYS,  780, 0.55f, 0.62f, 0.55f, 22, FLAG_FUNK,       4, TMIX_STRIP  }, /* 6  UK garage 2-step */
+{  16, KICK_2STEP, SNR_2STEP,SNR_NONE, HHC_GARAGE,HHO_OFF, RIDE_NONE,   6,  7, PRE_KEYS,  780, 0.55f, 0.62f, 0.55f, 22, (FLAG_FUNK|FLAG_CRASH), 4, TMIX_STRIP  }, /* 6  UK garage 2-step */
 {  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_NONE,   2,  6, PRE_KEYS,  650, 0.55f, 0.72f, 0.55f,  0, FLAG_NONE,       4, TMIX_WASH   }, /* 7  Organic house    */
 {  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_OFF,  RIDE_NONE,   2,  2, PRE_STAB,  800, 0.70f, 0.55f, 0.45f, 18, FLAG_CRASH,      4, TMIX_FILTER }, /* 8  Deep house       */
 {  24, KICK_FUNK,  SNR_GHOST,SNR_NONE, HHC_GARAGE,HHO_NONE,RIDE_NONE,   7, -1, PRE_PLUCK, 900, 0.80f, 0.48f, 0.45f, 14, FLAG_FUNK,       4, TMIX_ECHO   }, /* 9  Funky electro    */

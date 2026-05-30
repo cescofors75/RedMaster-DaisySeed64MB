@@ -536,31 +536,32 @@ static const char* const MIX_NAME[5] = {
     "CUT", "FILTER-SWEEP", "ECHO-OUT", "REVERB-WASH", "STRIP-KICK"
 };
 
-/* ── LA HISTORIA ──────────────────────────────────────────────────
- *  Una frase por seccion: el set se lee como una novela y se siente
- *  como un viaje emocional. De la oscuridad al jubilo, y vuelta a
- *  empezar. (ASCII puro para que ningun terminal serie lo rompa.)
+/* ── LA HISTORIA (fusion emocion + musica) ────────────────────────
+ *  Una frase por seccion que cuenta QUE SIENTES y POR QUE: el gesto
+ *  musical concreto (motor, filtro, ritmo) que provoca la emocion.
+ *  El publico flipa al entender lo que pasa por dentro mientras baila.
+ *  ASCII puro para que ningun terminal serie lo rompa.
  * ─────────────────────────────────────────────────────────────────*/
 static const char* const SEC_STORY[NUM_SECTIONS] = {
-    "Algo nace en la oscuridad... el amanecer de Detroit",       /* 1  */
-    "Primer latido. La ciudad despierta y se pone en marcha",    /* 2  */
-    "Un suspiro. Contienes el aliento...",                       /* 3  */
-    "La chispa acida prende. Empieza el viaje",                  /* 4  */
-    "El acido hierve. Ya no puedes quedarte quieto",             /* 5  */
-    "Las caderas toman el control. Groove de calle",             /* 6  */
-    "Respira. Calor humano, las manos se buscan",                /* 7  */
-    "Te sumerges. Profundo, hipnotico, sin fondo",               /* 8  */
-    "Sonries. El cuerpo juega, el funk manda",                   /* 9  */
-    "Silencio... todos se miran. Que viene ahora?",              /* 10 */
-    "El pulso hipnotico te atrapa, latido a latido",             /* 11 */
-    "Manos al cielo. Lagrimas de felicidad",                     /* 12 */
-    "La tribu. Fuego, tambores, tierra bajo los pies",           /* 13 */
-    "Sube... sube... la tension lo invade todo",                 /* 14 */
-    "EL CLIMAX. Todos saltan a la vez!",                         /* 15 */
-    "Ultima subida. El corazon a mil por hora",                  /* 16 */
-    "EXTASIS. El drop golpea. Todos saltan a la vez!",           /* 17 */
-    "APOTEOSIS!!! Manos al cielo, no se lo pueden creer!!!",      /* 18 */
-    "La calma. Nada volvera a ser igual... y vuelve a empezar",  /* 19 */
+    /* 1  */ "Nace en la oscuridad: campanas ring-mod del 808 flotan sin ritmo, un whoosh de reverb te arrastra dentro",
+    /* 2  */ "Primer latido: el 4x4 entra con crash, el ride marca el 8avo y el 303 respira grave. La ciudad se mueve",
+    /* 3  */ "Contienes el aliento: cae el kick y solo queda la reverb (fb 0.90) disolviendolo todo",
+    /* 4  */ "La chispa acida: el 303 serpentea con slides y el filtro ladder (Q 0.90) muerde. Empieza el viaje",
+    /* 5  */ "El acido hierve: el 303 abre a 1500 Hz al borde de la auto-oscilacion (Q 0.94). No puedes parar",
+    /* 6  */ "Las caderas mandan: 2-step del 505, shuffle de 22 muestras, teclas calidas del SH101. Groove de calle",
+    /* 7  */ "Respira: 4x4 suave, organo wavetable y octavas del SH101. Calor humano, las manos se buscan",
+    /* 8  */ "Te sumerges: stabs aditivos, swing 18, claps del 808. Profundo e hipnotico, sin fondo",
+    /* 9  */ "Sonries: slap bass con slides y rimshots a contratiempo. El cuerpo juega, el funk manda",
+    /* 10 */ "Silencio: todo cae a 200 Hz con reverb al 0.95. Todos se miran... que viene ahora?",
+    /* 11 */ "Pulso hipnotico: marimba escasa y dub delay al 0.62 que rebota en el vacio. Minimal",
+    /* 12 */ "Manos al cielo: el supersaw FM (detune 9) sube en arpegio sobre reverb gigante. Lagrimas de felicidad",
+    /* 13 */ "La tribu: toms y perc del 808, acordes stab, swing 8. Fuego y tierra bajo los pies",
+    /* 14 */ "Sube... sube...: el redoble de snare se acelera y la reverb crece. La tension lo invade todo",
+    /* 15 */ "EL CLIMAX: el riff anthem (mel8) estalla sobre pluck FM corto. Todos saltan a la vez!",
+    /* 16 */ "Ultima subida: kick galopante y snare en redoble. El corazon a mil por hora",
+    /* 17 */ "EL DROP golpea SIN AVISO: bajo motor de 16avos + riff de pico, crash en cada compas. Catarsis!",
+    /* 18 */ "APOTEOSIS: la melodia anthem vuela sobre el bajo motor con redobles de toms. No se lo creen!!!",
+    /* 19 */ "La calma: vuelven las campanas y la reverb larga. Nada sera igual... y vuelve a empezar",
 };
 
 /* ── CURVA DE ENERGIA (dinamica narrativa) ────────────────────────

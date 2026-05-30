@@ -522,7 +522,7 @@ static const Section SECTIONS[] = {
 {  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_OFF,  RIDE_NONE,   2,  2, PRE_STAB,  800, 0.70f, 0.55f, 0.45f, 18, FLAG_CRASH,      6, TMIX_FILTER }, /* 8  Deep house       */
 {  24, KICK_FUNK,  SNR_GHOST,SNR_NONE, HHC_GARAGE,HHO_NONE,RIDE_NONE,   7, -1, PRE_PLUCK, 900, 0.80f, 0.48f, 0.45f, 14, FLAG_FUNK,       6, TMIX_ECHO   }, /* 9  Funky electro    */
 {   4, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  200, 0.60f, 0.95f, 0.45f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 10 Micro-break      */
-{  20, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_NONE,   3,  3, PRE_MARIMBA,650,0.60f, 0.78f, 0.62f,  0, FLAG_STUTTER,    8, TMIX_WASH   }, /* 11 Minimal -> Trance: stutter+wall */
+{  20, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_NONE,   3,  3, PRE_MARIMBA,650,0.60f, 0.78f, 0.62f,  0, FLAG_PREVIEW,    8, TMIX_WASH   }, /* 11 Minimal -> Trance: WALL->SNAP */
 {  28, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_8TH,    5,  4, PRE_SUPER, 420, 0.82f, 0.88f, 0.55f,  0, FLAG_CRASH,      8, TMIX_WASH   }, /* 12 Trance melódico  */
 {  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_NONE, RIDE_NONE,   0,  2, PRE_STAB,  500, 0.70f, 0.60f, 0.50f,  8, (FLAG_TOMS|FLAG_CRASH), 6, TMIX_STRIP  }, /* 13 Tribal perc      */
 {  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 14 Buildup          */
@@ -829,11 +829,9 @@ static void EnterSection()
         DrumTrig(G_CRASH, 0.85f);
 
     /* Avisar al monitor del cambio de sección */
-    /* SNAP: el filtro maestro vuelve a abrirse y el stutter se corta de golpe
-     * al entrar la nueva sección (el crash de FLAG_CRASH cae en el bar 0)     */
+    /* SNAP: el filtro maestro vuelve a abrirse de golpe al entrar la nueva
+     * sección (el crash de FLAG_CRASH cae en el bar 0 → el supersaw explota) */
     masterLpfTgt  = 1.0f;
-    stutterPeriod = 0;
-    stutterPhase  = 0;
     monSec        = secIdx;
     monSecChanged = true;
 }

@@ -42,7 +42,7 @@ energía
 | 8 | 3:16 | **DEEP HOUSE** | 24 | 808 | SH101 | FM | 4×4 | octaves(2) / chords(2) | 800 | 0.70 | 0.55 | 0.45 | 18 | CRASH | FILTER (6) |
 | 9 | 4:00 | **FUNKY ELECTRO** | 24 | 505 | 303 | FM | funk | slap(7) / — | 900 | 0.80 | 0.48 | 0.45 | 14 | FUNK | ECHO (6) |
 | 10 | 4:44 | **MICRO-BREAK** | 4 | 909 | 303 | FM | — | — / bells(0) | 200 | 0.60 | 0.95 | 0.45 | — | — | corte |
-| 11 | 4:51 | **MINIMAL TECHNO** | 20 | 505 | SH101 | **WT** | 4×4 | sparse(3) / ostinato(3) | 650 | 0.60 | 0.78 | 0.62 | — | **STUTTER** | 🤯 WALL+STUTTER (8) |
+| 11 | 4:51 | **MINIMAL TECHNO** | 20 | 505 | SH101 | **WT** | 4×4 | sparse(3) / ostinato(3) | 650 | 0.60 | 0.78 | 0.62 | — | **PREVIEW** | 🧱 WALL → SNAP (8) |
 | 12 | 5:27 | **TRANCE SUPERSAW** | 28 | 909 | 303 | **WT** | 4×4 | rolling-oct(5) / arp(4) | 420 | 0.82 | 0.88 | 0.55 | — | CRASH | WASH (8) |
 | 13 | 6:18 | **TRIBAL PERC** | 16 | 808 | 303 | **WT** | 4×4 | ostinato(0) / chords(2) | 500 | 0.70 | 0.60 | 0.50 | 8 | TOMS+CRASH | STRIP (6) |
 | 14 | 6:47 | **BUILDUP** | 16 | 909 | 303 | FM | 4×4 | — / arp(4) | 420 | 0.82 | 0.92 | 0.55 | — | **BUILDUP** | slam |
@@ -66,7 +66,6 @@ energía
 | **STRIP** | Tensión rítmica: hats/clap fuera, queda el KICK solo. El bajo se abre en brillo. | hats off, `bassCutoff ×1.5`, reverb +0.5 |
 | **slam / corte** | Sin transición: golpe seco + crash. Tras BUILDUP o al entrar FINALE → todo instantáneo. | — |
 | **🧱 WALL → SNAP** | *(Minimal→Trance, 8 bars · FLAG_PREVIEW)* Un LPF maestro estéreo cierra progresivamente y hunde TODO el mix «en la sala de al lado», mientras la reverb-wash y la progresión armónica (Am·Dm·Em) crecen creando expectación. Al entrar el Trance el filtro se **reabre de golpe (snap)** + crash → el espectro completo del supersaw explota. Adiós al cambio brusco de 3 motores. | `masterLpf 1.0→0.10` durante transOut, reset a 1.0 en EnterSection |
-| **🤯 WALL+STUTTER** | *(Minimal→Trance, 8 bars)* El LPF maestro cierra y hunde TODO el groove «en la sala de al lado» (preview tras la pared). En las 2 últimas barras un gate retriggea acelerando 1/8→1/32 (efecto tape-stop/buffer-repeat). En el bar 1 del Trance: SNAP de apertura + crash. Rompe-cabezas garantizado. | `masterLpf 1.0→0.06`, `stutter period 1/8→1/32`, reset al entrar |
 
 **Regla de oro:** *nunca hay silencio ni bajada de volumen*. El beat (`drumsGainEff = 0.9`) y el `outGain = 1.0` son constantes. La transición vive **solo en el timbre** (filtro del bajo) y el **color** (reverb/delay). 10 minutos a muerte sin parar.
 

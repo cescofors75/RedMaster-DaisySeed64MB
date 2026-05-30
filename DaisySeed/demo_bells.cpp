@@ -30,15 +30,14 @@
  *     9  Funky electro          slap bass, rimshots, síncopa
  *    10  Micro-break            sin kick, fc=200, reverb wash (CONTRASTE)
  *    11  Minimal techno         sparse, dub delay profundo
- *    12  Pre-trance rise        909+303 sin melodía, engines cambian bajo el wash
- *    13  Trance supersaw        supersaw arp FM + sub, reverb enorme
- *    14  Tribal percussion      toms + perc + stab chords
- *    15  Buildup                snare roll + riser de reverb
- *    16  Peak-time drop         anthem riff (mel8) + pluck, máxima energía
- *    17  Final buildup          riser + gallop kick + snare roll
- *    18  FINAL DROP             driving bass16 + peak riff, crash/compás (SLAM)
- *    19  APOTEOSIS              anthem mel8 + bass16, tom fills, LOCURA!!!
- *    20  Reset                  silencio breve → vuelve al inicio
+ *    12  Trance supersaw        supersaw arp FM + sub, reverb enorme
+ *    13  Tribal percussion      toms + perc + stab chords
+ *    14  Buildup                snare roll + riser de reverb
+ *    15  Peak-time drop         anthem riff (mel8) + pluck, máxima energía
+ *    16  Final buildup          riser + gallop kick + snare roll
+ *    17  FINAL DROP             driving bass16 + peak riff, crash/compás (SLAM)
+ *    18  APOTEOSIS              anthem mel8 + bass16, tom fills, LOCURA!!!
+ *    19  Reset                  silencio breve → vuelve al inicio
  *
  *  Build:  build_daisy.ps1 -DemoBells   (o make DEMO_BELLS=1)
  *  Flash:  flash_bells.ps1              (sin samples.bin)
@@ -523,8 +522,7 @@ static const Section SECTIONS[] = {
 {  24, KICK_FUNK,  SNR_GHOST,SNR_NONE, HHC_GARAGE,HHO_NONE,RIDE_NONE,   7, -1, PRE_PLUCK, 900, 0.80f, 0.48f, 0.45f, 14, FLAG_FUNK,       6, TMIX_ECHO   }, /* 9  Funky electro    */
 {   4, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  200, 0.60f, 0.95f, 0.45f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 10 Micro-break      */
 {  20, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_NONE,   3,  3, PRE_MARIMBA,650,0.60f, 0.78f, 0.62f,  0, FLAG_NONE,       8, TMIX_WASH   }, /* 11 Minimal          */
-{   8, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,   3, -1, PRE_PLUCK, 420, 0.75f, 0.86f, 0.50f,  0, FLAG_NONE,       4, TMIX_WASH   }, /* 12 Pre-trance rise  */
-{  28, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_8TH,    5,  4, PRE_SUPER, 420, 0.82f, 0.88f, 0.55f,  0, FLAG_CRASH,      8, TMIX_WASH   }, /* 13 Trance melódico  */
+{  28, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_8TH,    5,  4, PRE_SUPER, 420, 0.82f, 0.88f, 0.55f,  0, FLAG_CRASH,      8, TMIX_WASH   }, /* 12 Trance melódico  */
 {  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_NONE, RIDE_NONE,   0,  2, PRE_STAB,  500, 0.70f, 0.60f, 0.50f,  8, (FLAG_TOMS|FLAG_CRASH), 6, TMIX_STRIP  }, /* 13 Tribal perc      */
 {  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 14 Buildup          */
 {  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_8TH,    5,  8, PRE_PLUCK,1100, 0.88f, 0.65f, 0.45f,  0, FLAG_CRASH,      4, TMIX_STRIP  }, /* 15 Peak drop        */
@@ -540,7 +538,7 @@ static const char* const SEC_NAME[NUM_SECTIONS] = {
     "DETROIT INTRO", "DETROIT GROOVE", "BREAKDOWN", "ACID HOUSE",
     "ACID PEAK", "UK GARAGE 2-STEP", "ORGANIC HOUSE", "DEEP HOUSE",
     "FUNKY ELECTRO", "MICRO-BREAK", "MINIMAL TECHNO",
-    "PRE-TRANCE RISE", "TRANCE SUPERSAW", "TRIBAL PERC", "BUILDUP", "PEAK DROP",
+    "TRANCE SUPERSAW", "TRIBAL PERC", "BUILDUP", "PEAK DROP",
     "FINAL BUILDUP", "FINAL DROP", "APOTEOSIS", "RESET"
 };
 static const char* const SEC_FX[NUM_SECTIONS] = {
@@ -555,7 +553,6 @@ static const char* const SEC_FX[NUM_SECTIONS] = {
     "funk: slap bass + rimshot syncopa",
     "break: no kick, fc=200Hz, reverb wash 0.95",
     "minimal: dub delay fb->0.62, sparse",
-    "pre-trance: 909+303 sin melodia, reverb crece, engines cambian bajo el wash",
     "trance: supersaw arp 16th, detune 9, rolling octave bass (pat5)",
     "tribal: toms+perc, stab chords, swing 12smp",
     "riser: snare roll, density f(progress)",
@@ -587,15 +584,14 @@ static const char* const SEC_STORY[NUM_SECTIONS] = {
     /* 9  */ "Sonries: slap bass con slides y rimshots a contratiempo. El cuerpo juega, el funk manda",
     /* 10 */ "Pausa cosmica: campanas del 808 flotan en reverb 0.95, el sub a 200 Hz se disuelve. Todos se miran... que viene?",
     /* 11 */ "Pulso hipnotico: marimba escasa y dub delay al 0.62 que rebota en el vacio. Minimal",
-    /* 12 */ "El amanecer: el 909 y el 303 despiertan silenciosos bajo la reverb. La tormenta de trance se acerca...",
-    /* 13 */ "Manos al cielo: el supersaw FM (detune 9) sube en arpegio sobre reverb gigante. Lagrimas de felicidad",
-    /* 14 */ "La tribu: toms y perc del 808, acordes stab, swing 8. Fuego y tierra bajo los pies",
-    /* 15 */ "Sube... sube...: el redoble de snare se acelera y la reverb crece. La tension lo invade todo",
-    /* 16 */ "EL CLIMAX: el riff anthem (mel8) estalla sobre pluck FM corto. Todos saltan a la vez!",
-    /* 17 */ "Ultima subida: kick galopante y snare en redoble. El corazon a mil por hora",
-    /* 18 */ "EL DROP golpea SIN AVISO: bajo motor de 16avos + riff de pico, crash en cada compas. Catarsis!",
-    /* 19 */ "APOTEOSIS: la melodia anthem vuela sobre el bajo motor con redobles de toms. No se lo creen!!!",
-    /* 20 */ "La calma: vuelven las campanas y la reverb larga. Nada sera igual... y vuelve a empezar",
+    /* 12 */ "Manos al cielo: el supersaw FM (detune 9) sube en arpegio sobre reverb gigante. Lagrimas de felicidad",
+    /* 13 */ "La tribu: toms y perc del 808, acordes stab, swing 8. Fuego y tierra bajo los pies",
+    /* 14 */ "Sube... sube...: el redoble de snare se acelera y la reverb crece. La tension lo invade todo",
+    /* 15 */ "EL CLIMAX: el riff anthem (mel8) estalla sobre pluck FM corto. Todos saltan a la vez!",
+    /* 16 */ "Ultima subida: kick galopante y snare en redoble. El corazon a mil por hora",
+    /* 17 */ "EL DROP golpea SIN AVISO: bajo motor de 16avos + riff de pico, crash en cada compas. Catarsis!",
+    /* 18 */ "APOTEOSIS: la melodia anthem vuela sobre el bajo motor con redobles de toms. No se lo creen!!!",
+    /* 19 */ "La calma: vuelven las campanas y la reverb larga. Nada sera igual... y vuelve a empezar",
 };
 
 /* ── CURVA DE ENERGIA (dinamica narrativa) ────────────────────────
@@ -616,15 +612,14 @@ static const float SEC_GAIN[NUM_SECTIONS] = {
     0.98f,  /* 9  funky                              */
     0.94f,  /* 10 micro-break (corte breve, full)    */
     0.96f,  /* 11 minimal                            */
-    0.97f,  /* 12 pre-trance rise (sube hacia trance)*/
-    1.00f,  /* 13 trance, clímax                     */
-    1.00f,  /* 14 tribal                             */
-    0.98f,  /* 15 buildup                            */
-    1.00f,  /* 16 PEAK DROP                          */
-    0.98f,  /* 17 final buildup                      */
-    1.00f,  /* 18 FINAL DROP                         */
-    1.00f,  /* 19 APOTEOSIS                          */
-    0.92f,  /* 20 reset (cierre, no bajón)           */
+    1.00f,  /* 12 trance, clímax                     */
+    1.00f,  /* 13 tribal                             */
+    0.98f,  /* 14 buildup                            */
+    1.00f,  /* 15 PEAK DROP                          */
+    0.98f,  /* 16 final buildup                      */
+    1.00f,  /* 17 FINAL DROP                         */
+    1.00f,  /* 18 APOTEOSIS                          */
+    0.92f,  /* 19 reset (cierre, no bajón)           */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -645,15 +640,14 @@ static const EngineSel SEC_ENGINE[NUM_SECTIONS] = {
     { DK_505, BE_303,   LE_FM },  /* 9  Funky electro   */
     { DK_909, BE_303,   LE_FM },  /* 10 Micro-break     */
     { DK_505, BE_SH101, LE_WT },  /* 11 Minimal         ← WT */
-    { DK_909, BE_303,   LE_FM },  /* 12 Pre-trance rise ← engine change aquí */
-    { DK_909, BE_303,   LE_WT },  /* 13 Trance supersaw ← WT saves ~18% CPU */
-    { DK_808, BE_303,   LE_WT },  /* 14 Tribal (congas) ← WT */
-    { DK_909, BE_303,   LE_FM },  /* 15 Buildup         */
-    { DK_909, BE_303,   LE_WT },  /* 16 Peak drop       ← WT */
-    { DK_909, BE_303,   LE_WT },  /* 17 Final buildup   ← WT */
-    { DK_909, BE_303,   LE_FM },  /* 18 Final drop      */
-    { DK_909, BE_303,   LE_FM },  /* 19 Apoteosis       */
-    { DK_808, BE_303,   LE_FM },  /* 20 Reset           */
+    { DK_909, BE_303,   LE_WT },  /* 12 Trance supersaw ← WT saves ~18% CPU */
+    { DK_808, BE_303,   LE_WT },  /* 13 Tribal (congas) ← WT */
+    { DK_909, BE_303,   LE_FM },  /* 14 Buildup         */
+    { DK_909, BE_303,   LE_WT },  /* 15 Peak drop       ← WT */
+    { DK_909, BE_303,   LE_WT },  /* 16 Final buildup   ← WT */
+    { DK_909, BE_303,   LE_FM },  /* 17 Final drop      */
+    { DK_909, BE_303,   LE_FM },  /* 18 Apoteosis       */
+    { DK_808, BE_303,   LE_FM },  /* 19 Reset           */
 };
 
 /* ═══════════════════════════════════════════════════════════════════

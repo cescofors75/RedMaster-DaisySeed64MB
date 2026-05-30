@@ -482,14 +482,14 @@ struct Section {
 static const Section SECTIONS[] = {
 /* bars kick          snare     clap      hhc        hho      ride       bp  mp  pre        cut    res    rev    dly  sw flags            tOB tMode        */
 {  16, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.80f, 0.45f,  0, FLAG_CRASH,      8, TMIX_WASH   }, /* 1  Detroit intro    */
-{  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_8TH,    0,  0, PRE_BELL,  420, 0.82f, 0.72f, 0.45f,  0, FLAG_CRASH,      4, TMIX_WASH   }, /* 2  Detroit groove   */
+{  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_8TH,    0,  0, PRE_BELL,  420, 0.82f, 0.72f, 0.45f,  0, FLAG_CRASH,      6, TMIX_WASH   }, /* 2  Detroit groove   */
 {   4, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.90f, 0.55f,  0, FLAG_NONE,       2, TMIX_FILTER }, /* 3  Breakdown        */
-{  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_NONE, RIDE_NONE,   1,  1, PRE_PLUCK, 900, 0.90f, 0.45f, 0.40f,  0, FLAG_CRASH,      4, TMIX_FILTER }, /* 4  Acid house       */
-{  16, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_NONE,   1,  1, PRE_PLUCK,1500, 0.94f, 0.40f, 0.50f,  0, FLAG_NONE,       4, TMIX_ECHO   }, /* 5  Acid peak        */
+{  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_NONE, RIDE_NONE,   1,  1, PRE_PLUCK, 900, 0.90f, 0.45f, 0.40f,  0, FLAG_CRASH,      6, TMIX_FILTER }, /* 4  Acid house       */
+{  16, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_NONE,   1,  1, PRE_PLUCK,1500, 0.94f, 0.40f, 0.50f,  0, FLAG_NONE,       6, TMIX_ECHO   }, /* 5  Acid peak        */
 {  16, KICK_2STEP, SNR_2STEP,SNR_NONE, HHC_GARAGE,HHO_OFF, RIDE_NONE,   6,  7, PRE_KEYS,  780, 0.55f, 0.62f, 0.55f, 22, (FLAG_FUNK|FLAG_CRASH), 4, TMIX_STRIP  }, /* 6  UK garage 2-step */
-{  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_NONE,   2,  6, PRE_KEYS,  650, 0.55f, 0.72f, 0.55f,  0, FLAG_NONE,       4, TMIX_WASH   }, /* 7  Organic house    */
-{  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_OFF,  RIDE_NONE,   2,  2, PRE_STAB,  800, 0.70f, 0.55f, 0.45f, 18, FLAG_CRASH,      4, TMIX_FILTER }, /* 8  Deep house       */
-{  24, KICK_FUNK,  SNR_GHOST,SNR_NONE, HHC_GARAGE,HHO_NONE,RIDE_NONE,   7, -1, PRE_PLUCK, 900, 0.80f, 0.48f, 0.45f, 14, FLAG_FUNK,       4, TMIX_ECHO   }, /* 9  Funky electro    */
+{  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_NONE,   2,  6, PRE_KEYS,  650, 0.55f, 0.72f, 0.55f,  0, FLAG_NONE,       6, TMIX_WASH   }, /* 7  Organic house    */
+{  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_OFF,  RIDE_NONE,   2,  2, PRE_STAB,  800, 0.70f, 0.55f, 0.45f, 18, FLAG_CRASH,      6, TMIX_FILTER }, /* 8  Deep house       */
+{  24, KICK_FUNK,  SNR_GHOST,SNR_NONE, HHC_GARAGE,HHO_NONE,RIDE_NONE,   7, -1, PRE_PLUCK, 900, 0.80f, 0.48f, 0.45f, 14, FLAG_FUNK,       6, TMIX_ECHO   }, /* 9  Funky electro    */
 {   4, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1, -1, PRE_BELL,  200, 0.60f, 0.95f, 0.45f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 10 Micro-break      */
 {  20, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_NONE,   3,  3, PRE_MARIMBA,650,0.60f, 0.78f, 0.62f,  0, FLAG_NONE,       6, TMIX_WASH   }, /* 11 Minimal          */
 {  28, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_8TH,    3,  4, PRE_SUPER, 420, 0.82f, 0.88f, 0.55f,  0, FLAG_CRASH,      8, TMIX_WASH   }, /* 12 Trance melódico  */
@@ -648,6 +648,8 @@ static volatile int      monSec        = 0;
 static volatile uint32_t monBar        = 0;
 static volatile float    monVU         = 0.0f;
 static volatile float    monTransOut   = 0.0f;
+static volatile float    monInGain     = 1.0f;   /* fade-in drums 0→1  */
+static volatile float    monOutGain    = 1.0f;   /* fade-out drums 1→0 */
 static volatile uint8_t  monMode       = 0;
 static volatile float    monCutoff     = 420.0f;
 static volatile float    monRev        = 0.80f;
@@ -667,7 +669,18 @@ static float monVuPeak = 0.0f;
  * ─────────────────────────────────────────────────────────────────*/
 static float transOut    = 0.0f;
 static float transInProg = 0.0f;
-static constexpr int kTransInBars = 4;
+static constexpr int kTransInBars = 6;   /* bars para abrir el filtro del bajo */
+
+/* ── Crossfade de entrada/salida ──────────────────────────────────
+ *  outGain: 1→0 durante los últimos transOutBars  (tema saliente baja)
+ *  inGain : 0→1 durante los primeros kFadeInBars  (tema entrante sube)
+ *  leadGain: 0→1 más lento — la melodía entra con retraso (sutil)
+ * ─────────────────────────────────────────────────────────────────*/
+static float outGain  = 1.0f;   /* drums+lead del tema SALIENTE        */
+static float inGain   = 1.0f;   /* drums del tema ENTRANTE             */
+static float leadGain = 1.0f;   /* lead/melodía del tema ENTRANTE      */
+static constexpr int kFadeInBars  = 4;  /* bars para subir drums       */
+static constexpr int kLeadInBars  = 6;  /* bars para entrar la melodia */
 
 /* ── Cutoff efectivo del bajo (calculado en AudioCallback) ── */
 static float bassCutoffEff = 420.0f;
@@ -693,6 +706,9 @@ static void EnterSection()
     rideGain     = 0.0f;
     bassCutoffEff = (cur.bassPat >= 0) ? 80.0f : cur.bassCutoff; /* empieza cerrado */
     drumsGainEff  = 0.9f;
+    outGain      = 1.0f;    /* reset: el tema anterior ya bajó */
+    inGain       = 0.0f;    /* nuevo tema empieza en silencio  */
+    leadGain     = 0.0f;    /* melodía entra más tarde, sutil  */
 
     /* Seleccionar engines de esta sección. Silenciar el lead saliente
      * para que no queden voces colgando al cambiar de motor. */
@@ -852,13 +868,37 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
     float tRevFb = cur.revFb;
     float tDlyFb = cur.dlyFb;
 
+    /* ── Fade-out del tema SALIENTE (transOut 0→1) ─────────────────
+     *  outGain baja de 1.0 a 0.0 progresivamente durante los últimos
+     *  transOutBars. Se aplica a drums + lead del tema saliente.
+     *  La melodía desaparece primero (más rápido que los drums),
+     *  como hace un DJ real cuando quita el canal de melodía. */
+    if(transOut > 0.0f){
+        outGain += (Lerp(1.0f, 0.0f, transOut) - outGain) * 0.004f;
+    } else {
+        outGain = 1.0f;
+    }
+
+    /* ── Fade-in del tema ENTRANTE ──────────────────────────────────
+     *  inGain: drums suben linealmente en kFadeInBars compases.
+     *  leadGain: melodía entra más despacio (kLeadInBars) — primero
+     *  el groove, luego la armonía, como un DJ que abre el canal de
+     *  melodía unos compases después del groove. */
+    {
+        /* Pasos totales = bars × 16 pasos/bar. Bloque = 96 smp ≈ 1 paso */
+        const float kInStep  = 1.0f / (float)(kFadeInBars * 16);
+        const float kLdStep  = 1.0f / (float)(kLeadInBars * 16);
+        if(inGain   < 1.0f) inGain   = Clampf(inGain   + kInStep, 0.0f, 1.0f);
+        if(leadGain < 1.0f) leadGain = Clampf(leadGain + kLdStep, 0.0f, 1.0f);
+    }
+
     if(transOut > 0.0f){
         switch(cur.transMode){
             case TMIX_FILTER:
                 /* Cierra el bajo de cutoff → 80 Hz */
                 bassCutoffEff += (Lerp(cur.bassCutoff, 80.0f, transOut) - bassCutoffEff) * 0.03f;
-                /* Pull suave de drums (como bajar el EQ mid del canal) */
-                drumsGainEff = 0.9f * (1.0f - transOut * 0.3f);
+                /* Drums bajan junto con outGain, aquí suave pull del mid */
+                drumsGainEff = 0.9f * outGain;
                 /* Reverb sube ligeramente */
                 tRevFb = cur.revFb + (0.87f - cur.revFb) * transOut * 0.6f;
                 break;
@@ -868,39 +908,42 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
                 tDlyFb = cur.dlyFb + (0.82f - cur.dlyFb) * transOut;
                 /* Reverb wash moderado */
                 tRevFb = cur.revFb + (0.90f - cur.revFb) * transOut * 0.7f;
-                /* Bass cierra 40% también */
+                /* Bass cierra y drums bajan */
                 bassCutoffEff += (Lerp(cur.bassCutoff, cur.bassCutoff * 0.5f, transOut * 0.7f)
                                   - bassCutoffEff) * 0.03f;
+                drumsGainEff = 0.9f * outGain;
                 break;
 
             case TMIX_WASH:
-                /* Reverb sube a 0.95 → cola enorme */
+                /* Reverb sube a 0.95 → cola enorme, drums se disuelven */
                 tRevFb = cur.revFb + (0.95f - cur.revFb) * transOut;
-                /* Delay también sube un poco */
                 tDlyFb = cur.dlyFb + (cur.dlyFb * 1.3f - cur.dlyFb) * transOut * 0.5f;
-                /* Bass cierra suave */
                 bassCutoffEff += (Lerp(cur.bassCutoff, 120.0f, transOut * 0.6f)
                                   - bassCutoffEff) * 0.02f;
+                drumsGainEff = 0.9f * outGain;
                 break;
 
             case TMIX_STRIP:
-                /* Tensión: reverb sube, bass cierra 30% */
+                /* Tensión: hats fuera (SequencerTick), bass cierra */
                 tRevFb = cur.revFb + (0.88f - cur.revFb) * transOut * 0.5f;
                 bassCutoffEff += (Lerp(cur.bassCutoff, cur.bassCutoff * 0.6f, transOut * 0.5f)
                                   - bassCutoffEff) * 0.02f;
+                /* Strip NO baja outGain: el kick debe llegar fuerte al drop */
+                drumsGainEff = 0.9f;
                 break;
 
             default:
                 bassCutoffEff += (cur.bassCutoff - bassCutoffEff) * 0.05f;
+                drumsGainEff   = 0.9f;
                 break;
         }
     } else if(transInProg > 0.0f){
         /* Filter-in sweep: el bajo abre de 80 Hz → target de la sección */
         float openCutoff = Lerp(80.0f, cur.bassCutoff, 1.0f - transInProg);
         bassCutoffEff += (openCutoff - bassCutoffEff) * 0.04f;
-        drumsGainEff   = 0.9f;
+        drumsGainEff   = 0.9f * inGain;
     } else {
-        /* Estado estable: lerp rápido al target */
+        /* Estado estable */
         bassCutoffEff += (cur.bassCutoff - bassCutoffEff) * 0.05f;
         drumsGainEff   = 0.9f;
     }
@@ -938,9 +981,15 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
             }
         }
 
-        /* Ganancia de drums: reducida en FINALE para evitar saturación
-         * (gallop kick + 16th hats + ride + crash acumulan mucho RMS) */
-        float dGain = drumsGainEff * ((cur.flags & FLAG_FINALE) ? 0.70f : 1.0f);
+        /* ── Mezcla con crossfade profesional ───────────────────────
+         * Drums y lead del tema saliente se aplican con outGain (1→0).
+         * Al entrar la nueva sección, inGain sube drums (0→1) y
+         * leadGain sube la melodía más tarde (entrada sutil).
+         * El bass no se atenúa por inGain: el filter-in ya lo gestiona
+         * (empieza cerrado a 80Hz y abre progresivamente). */
+        float dGain = drumsGainEff
+                    * ((cur.flags & FLAG_FINALE) ? 0.70f : 1.0f)
+                    * ((inGain < 1.0f) ? inGain : outGain);
         float drumMix = DrumProcess() * dGain;
 
         /* Delay ping-pong */
@@ -949,8 +998,9 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         float dL   = dlyBufL[rpL];
         float dR   = dlyBufR[rpR];
 
-        /* Lead activo (FM 8 voces o Wavetable polifónico) */
-        float fmMix = LeadProcess() * 0.30f;
+        /* Lead: sube más tarde que los drums (entrada sutil de melodía) */
+        float leadFade = (inGain < 1.0f) ? leadGain : outGain;
+        float fmMix = LeadProcess() * 0.30f * leadFade;
 
         float bassMix = BassProcess() * 0.85f;
 
@@ -987,6 +1037,8 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
     monVU       = monVuPeak;
     monBar      = (uint32_t)secBar;
     monTransOut = transOut;
+    monInGain   = inGain;
+    monOutGain  = outGain;
     monMode     = cur.transMode;
     monCutoff   = bassCutoffEff;
     monRev      = revFb;
@@ -1195,15 +1247,30 @@ static void MonitorLive()
     /* beat 1 destacado (downbeat) */
     const char* beatCol = (stp == 0) ? C(A_BWHT) : C(A_DIM);
 
-    if(tout > 0.001f){
-        char tbar[14];
-        RenderBar(tout, 10, '>', tbar);
-        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %s>>%s%s %s%s%s",
+    float ig = monInGain;
+    float og = monOutGain;
+    if(tout > 0.001f || og < 0.99f){
+        /* Fade-out activo: mostrar barras de crossfade */
+        char tbar[14], obar[14];
+        RenderBar(tout, 8, '>', tbar);
+        RenderBar(1.0f - og, 8, '-', obar);
+        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %s>>%s%s OUT[%s%s%s] fc=%d",
            beatCol, beat, C(A_RST), stp,
            col, stepbuf, C(A_RST), vubar,
            col, progbuf, C(A_RST),
            C(A_BRED), MIX_NAME[monMode], C(A_RST),
-           C(A_BRED), tbar, C(A_RST));
+           C(A_BRED), obar, C(A_RST),
+           (int)monCutoff);
+    } else if(ig < 0.99f){
+        /* Fade-in activo: mostrar progreso de entrada */
+        char ibar[14];
+        RenderBar(ig, 8, '+', ibar);
+        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %sIN[%s%s]%s fc=%d v:%s%d%s",
+           beatCol, beat, C(A_RST), stp,
+           col, stepbuf, C(A_RST), vubar,
+           col, progbuf, C(A_RST),
+           C(A_BGRN), ibar, C(A_RST),
+           C(A_RST), (int)monCutoff, fmCol, fmv_n, C(A_RST));
     } else {
         PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %s%s/%s/%s%s fc=%d v:%s%d%s",
            beatCol, beat, C(A_RST), stp,

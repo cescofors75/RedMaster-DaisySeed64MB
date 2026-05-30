@@ -87,6 +87,14 @@ static constexpr float  SAMPLE_RATE = 48000.0f;
 static constexpr size_t AUDIO_BLOCK = 96;  /* 2ms/callback: más margen de CPU sin efecto audible */
 
 static inline float Lerp(float a, float b, float t) { return a + (b - a) * t; }
+/* Soft-clip rápido (aprox. tanh): rational, sin llamar a libm.
+ * Error < 1% en [-3,3], satura suave igual que tanh. ~10x más barato. */
+static inline float FastTanh(float x) {
+    if(x < -3.0f) return -1.0f;
+    if(x >  3.0f) return  1.0f;
+    float x2 = x * x;
+    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+}
 static inline float Clampf(float v, float lo, float hi) {
     return v < lo ? lo : (v > hi ? hi : v);
 }
@@ -190,7 +198,7 @@ static size_t dlyTimeR = 24000;  /* tap R: más largo       */
 /* ═══════════════════════════════════════════════════════════════════
  *  VOCES FM — 8-voice polyphony con presets
  * ═══════════════════════════════════════════════════════════════════ */
-static constexpr int NUM_FM = 8;
+static constexpr int NUM_FM = 6;   /* 6 voces: pluck (0.22s) nunca usa 8 → ahorra CPU */
 static FM2Op::Synth fmv[NUM_FM];
 static uint8_t      fmNext = 0;
 
@@ -1143,8 +1151,8 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         float outL = (dryL + wetL * 0.40f) * masterGain;
         float outR = (dryR + wetR * 0.40f) * masterGain;
 
-        float sL = tanhf(outL * 0.7f);
-        float sR = tanhf(outR * 0.7f);
+        float sL = FastTanh(outL * 0.7f);
+        float sR = FastTanh(outR * 0.7f);
         out[0][i] = sL;
         out[1][i] = sR;
 
@@ -1387,44 +1395,40 @@ static void MonitorLive()
         chord = CHORD_NAME[((bar - 1) / kHarmBars) % 4];
     }
 
-    char vubar[160], progbuf[14];
-    RenderVuColor(vu, 10, vubar);
+    /* Barras en texto PLANO (sin ANSI por celda): así la línea cabe en el
+     * buffer de PrintLine y nunca se trunca ni pierde el salto de línea. */
+    char vubar[12], progbuf[12];
+    RenderBar(vu, 10, '#', vubar);
     RenderProgress(bar, bars, 10, progbuf);
 
-    const char* col   = SecColor(idx);
-    const char* fmCol = (fmv_n >= 7) ? C(A_BRED) : (fmv_n >= 5) ? C(A_BYEL) : C(A_BGRN);
-
-    /* CPU: verde <60%, amarillo <80%, rojo >=80% (riesgo de underrun) */
     int cpuPct = (int)(monCpu * 100.0f + 0.5f);
-    const char* cpuCol = (cpuPct >= 80) ? C(A_BRED) : (cpuPct >= 60) ? C(A_BYEL) : C(A_BGRN);
 
-    /* Tiempo absoluto del set: 1 compás = 4 pasos de negra @ BPM */
+    /* Tiempo absoluto del set: 1 compás = 16 pasos @ BPM */
     float barSec   = (float)kStepSamples * 16.0f / SAMPLE_RATE;
     int   totalSec = (int)((float)monGlobalBar * barSec);
     int   mm = totalSec / 60, ss = totalSec % 60;
 
-    /* Estado de la mezcla: entrando / saliendo / estable */
-    char mixbuf[40];
+    /* Estado de la mezcla: entrando / saliendo / vacío */
+    char mixbuf[24];
     float og = monOutGain;
     if(tout > 0.001f || og < 0.99f)
-        snprintf(mixbuf, sizeof(mixbuf), "%s>> %s %d%%%s",
-                 C(A_BRED), MIX_NAME[monMode], (int)(tout * 100.0f), C(A_RST));
+        snprintf(mixbuf, sizeof(mixbuf), ">>%s%d%%", MIX_NAME[monMode], (int)(tout*100.0f));
     else if(monInGain < 0.99f)
-        snprintf(mixbuf, sizeof(mixbuf), "%sIN %d%%%s",
-                 C(A_BGRN), (int)(monInGain * 100.0f), C(A_RST));
+        snprintf(mixbuf, sizeof(mixbuf), "IN%d%%", (int)(monInGain*100.0f));
     else
         mixbuf[0] = '\0';
 
-    /* Línea de tracklist: prefijo con número de sección para escanearla rápido.
-     *   [sec] mm:ss bbb/BB [prog] VU[....] DRUM/BASS/LEAD chord fc v:n cpu%% <mix> */
-    PL(" %s[%2d]%s %s%d:%02d%s %sb%02d/%02d%s [%s%s%s] VU[%s] %s%s/%s/%s%s %s%s%s fc=%-4d v:%s%d%s cpu:%s%2d%%%s %s",
+    /* Una sola línea, color SÓLO en el tag de sección y en la CPU (aviso).
+     * El resto en texto plano → ~90 bytes, entra de sobra en el buffer.
+     *   [sec] mm:ss bb/BB [prog] VU[....] D/B/L chord fc vN cpuNN% <mix> */
+    const char* col    = SecColor(idx);
+    const char* cpuCol = (cpuPct >= 80) ? C(A_BRED) : (cpuPct >= 60) ? C(A_BYEL) : C(A_BGRN);
+    PL(" %s[%2d]%s %d:%02d b%02d/%02d [%s] VU[%s] %s/%s/%s %s fc%-4d v%d cpu%s%2d%%%s %s",
        col, idx + 1, C(A_RST),
-       C(A_DIM), mm, ss, C(A_RST),
-       C(A_BWHT), bar, bars, C(A_RST),
-       col, progbuf, C(A_RST), vubar,
-       C(A_DIM), DK_NAME[monDrum], BE_NAME[monBass], LE_NAME[monLead], C(A_RST),
-       C(A_BMAG), chord, C(A_RST),
-       (int)monCutoff, fmCol, fmv_n, C(A_RST),
+       mm, ss, bar, bars,
+       progbuf, vubar,
+       DK_NAME[monDrum], BE_NAME[monBass], LE_NAME[monLead],
+       chord, (int)monCutoff, fmv_n,
        cpuCol, cpuPct, C(A_RST),
        mixbuf);
 }

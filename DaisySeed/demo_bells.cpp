@@ -481,7 +481,7 @@ struct Section {
  * ═══════════════════════════════════════════════════════════════════ */
 static const Section SECTIONS[] = {
 /* bars kick          snare     clap      hhc        hho      ride       bp  mp  pre        cut    res    rev    dly  sw flags            tOB tMode        */
-{   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.80f, 0.45f,  0, FLAG_CRASH,      4, TMIX_WASH   }, /* 1  Detroit intro    */
+{  16, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.80f, 0.45f,  0, FLAG_CRASH,      8, TMIX_WASH   }, /* 1  Detroit intro    */
 {  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_8TH,    0,  0, PRE_BELL,  420, 0.82f, 0.72f, 0.45f,  0, FLAG_NONE,       4, TMIX_WASH   }, /* 2  Detroit groove   */
 {   4, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.90f, 0.55f,  0, FLAG_NONE,       2, TMIX_FILTER }, /* 3  Breakdown        */
 {  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_NONE, RIDE_NONE,   1,  1, PRE_PLUCK, 900, 0.90f, 0.45f, 0.40f,  0, FLAG_CRASH,      4, TMIX_FILTER }, /* 4  Acid house       */
@@ -491,14 +491,14 @@ static const Section SECTIONS[] = {
 {  24, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_OFF,  HHO_OFF,  RIDE_NONE,   2,  2, PRE_STAB,  800, 0.70f, 0.55f, 0.45f, 18, FLAG_CRASH,      4, TMIX_FILTER }, /* 8  Deep house       */
 {  24, KICK_FUNK,  SNR_GHOST,SNR_NONE, HHC_GARAGE,HHO_NONE,RIDE_NONE,   7, -1, PRE_PLUCK, 900, 0.80f, 0.48f, 0.45f, 14, FLAG_FUNK,       4, TMIX_ECHO   }, /* 9  Funky electro    */
 {   4, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1, -1, PRE_BELL,  200, 0.60f, 0.95f, 0.45f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 10 Micro-break      */
-{  20, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_NONE,   3,  3, PRE_MARIMBA,650,0.60f, 0.78f, 0.62f,  0, FLAG_NONE,       4, TMIX_WASH   }, /* 11 Minimal          */
-{  28, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_8TH,   -1,  4, PRE_SUPER, 420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       6, TMIX_WASH   }, /* 13 Trance melódico  */
-{  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_NONE, RIDE_NONE,   0,  2, PRE_STAB,  500, 0.70f, 0.60f, 0.50f, 12, FLAG_TOMS,       4, TMIX_STRIP  }, /* 14 Tribal perc      */
-{  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 15 Buildup          */
-{  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_8TH,    5,  8, PRE_PLUCK,1100, 0.88f, 0.65f, 0.45f,  0, FLAG_CRASH,      4, TMIX_STRIP  }, /* 16 Peak drop        */
-{  16, KICK_GALLOP,SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,   -1,  3, PRE_PLUCK, 420, 0.82f, 0.60f, 0.22f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 17 Final buildup    */
-{  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_NONE, HHO_NONE, RIDE_8TH,    5,  3, PRE_PLUCK, 1100,0.86f, 0.40f, 0.20f,  0, FLAG_FINALE,    8, TMIX_WASH }, /* 18 FINAL DROP */
-{   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 19 Reset            */
+{  20, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_OFF,  RIDE_NONE,   3,  3, PRE_MARIMBA,650,0.60f, 0.78f, 0.62f,  0, FLAG_NONE,       6, TMIX_WASH   }, /* 11 Minimal          */
+{  28, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_OFF,  RIDE_8TH,    3,  4, PRE_SUPER, 420, 0.82f, 0.88f, 0.55f,  0, FLAG_CRASH,      8, TMIX_WASH   }, /* 12 Trance melódico  */
+{  16, KICK_FOUR,  SNR_NONE, SNR_NONE, HHC_OFF,  HHO_NONE, RIDE_NONE,   0,  2, PRE_STAB,  500, 0.70f, 0.60f, 0.50f,  8, (FLAG_TOMS|FLAG_CRASH), 6, TMIX_STRIP  }, /* 13 Tribal perc      */
+{  16, KICK_FOUR,  SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,  -1,  4, PRE_LEAD,  420, 0.82f, 0.92f, 0.55f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 14 Buildup          */
+{  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_16TH, HHO_OFF,  RIDE_8TH,    5,  8, PRE_PLUCK,1100, 0.88f, 0.65f, 0.45f,  0, FLAG_CRASH,      4, TMIX_STRIP  }, /* 15 Peak drop        */
+{  16, KICK_GALLOP,SNR_BACK, SNR_NONE, HHC_16TH, HHO_NONE, RIDE_NONE,   -1,  3, PRE_PLUCK, 420, 0.82f, 0.60f, 0.22f,  0, FLAG_BUILDUP,    0, TMIX_NONE   }, /* 16 Final buildup    */
+{  32, KICK_FOUR,  SNR_NONE, SNR_BACK, HHC_NONE, HHO_NONE, RIDE_8TH,    5,  3, PRE_PLUCK, 1100,0.86f, 0.40f, 0.20f,  0, FLAG_FINALE,    8, TMIX_WASH }, /* 17 FINAL DROP */
+{   8, KICK_NONE,  SNR_NONE, SNR_NONE, HHC_NONE, HHO_NONE, RIDE_NONE,  -1,  0, PRE_BELL,  420, 0.82f, 0.88f, 0.55f,  0, FLAG_NONE,       0, TMIX_NONE   }, /* 18 Reset            */
 };
 static constexpr int NUM_SECTIONS = (int)(sizeof(SECTIONS)/sizeof(SECTIONS[0]));
 

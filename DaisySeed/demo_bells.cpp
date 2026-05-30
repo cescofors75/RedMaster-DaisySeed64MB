@@ -431,6 +431,27 @@ static const Melody MEL_BANK[] = {
 };
 
 /* ═══════════════════════════════════════════════════════════════════
+ *  PROGRESIÓN ARMÓNICA (para secciones largas)
+ *  Las secciones de ≥20 compases repetían el mismo acorde 32 barras →
+ *  monótono.  Ahora cada 8 compases el bajo y la melodía se TRANSPONEN
+ *  siguiendo una progresión menor clásica (i - iv - v - III en La menor:
+ *  Am - Dm - Em - C), creando movimiento armónico y tensión/resolución
+ *  sin cambiar de patrón.  Offsets en semitonos desde la tónica.
+ * ═══════════════════════════════════════════════════════════════════ */
+static const int8_t HARM_PROG[4] = { 0, +5, +7, +3 };  /* i, iv, v, III */
+static constexpr int kHarmBars = 8;   /* ritmo armónico: 1 acorde / 8 bars */
+
+/* Transpone una nota MIDI conservando los silencios (0) y el rango válido */
+static inline uint8_t Transpose(uint8_t note, int semis)
+{
+    if(note == 0 || semis == 0) return note;
+    int n = (int)note + semis;
+    if(n < 1)   n = 1;
+    if(n > 127) n = 127;
+    return (uint8_t)n;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
  *  MODOS DE TRANSICIÓN DE MEZCLA (estilo DJ profesional)
  * ═══════════════════════════════════════════════════════════════════ */
 enum TransMode : uint8_t {
@@ -912,19 +933,26 @@ static void SequencerTick()
        cur.bars >= 20 && !(cur.flags & (FLAG_BUILDUP | FLAG_FINALE)))
         DrumTrig(G_CRASH, 0.40f);
 
+    /* ── Offset armónico de la sección (solo secciones largas con groove) ──
+     *  Cada kHarmBars compases avanza un acorde de HARM_PROG.  Buildup y
+     *  finale quedan fuera (deben mantener la tónica para el impacto). */
+    int harmOffset = 0;
+    if(cur.bars >= 20 && !(cur.flags & (FLAG_BUILDUP | FLAG_FINALE)))
+        harmOffset = HARM_PROG[(secBar / kHarmBars) % 4];
+
     /* ── MELODÍA (lead: FM o Wavetable) ── */
     if(cur.melPat >= 0){
         const Melody& m = MEL_BANK[cur.melPat];
-        uint8_t hi = m.hi[step16];
+        uint8_t hi = Transpose(m.hi[step16], harmOffset);
         if(hi) LeadNoteOn(hi, ((step16%4)==0) ? 0.9f : 0.6f, cur.fmPreset);
-        uint8_t lo = m.lo[step16];
+        uint8_t lo = Transpose(m.lo[step16], harmOffset);
         if(lo) LeadNoteOn(lo, 0.65f, cur.fmPreset);
     }
 
     /* ── BAJO (303 o SH101) ── */
     if(cur.bassPat >= 0){
         const BassPat& bp = BASS_BANK[cur.bassPat];
-        uint8_t note = bp.note[step16];
+        uint8_t note = Transpose(bp.note[step16], harmOffset);
         if(note)
             BassNoteOn(note, bp.acc[step16] != 0, bp.slide[step16] != 0);
     }
@@ -1281,6 +1309,9 @@ static void MonitorBanner(int idx)
     else
         PL("  %smel%s  : --", C(A_DIM), C(A_RST));
     PL("  %sFX%s   : %s%s%s", C(A_BYEL), C(A_RST), C(A_YEL), SEC_FX[idx], C(A_RST));
+    if(s.bars >= 20 && !(s.flags & (FLAG_BUILDUP | FLAG_FINALE)))
+        PL("  %sharm%s : Am-Dm-Em-C  (1 acorde / %d bars, transpone bass+mel)",
+           C(A_BMAG), C(A_RST), kHarmBars);
     if(s.transOutBars)
         PL("  %smix>>%s: %s%s%s  (%d bars out)",
            C(A_BRED), C(A_RST), C(A_BRED), MIX_NAME[s.transMode], C(A_RST),
@@ -1313,6 +1344,14 @@ static void MonitorLive()
     int    stp   = monStep16;
     int    fmv_n = (int)monFmVoices;
     int    beat  = stp / 4 + 1;   /* 1-4 */
+
+    /* Acorde actual si la sección tiene progresión armónica */
+    const Section& sLive = SECTIONS[idx];
+    const char* chord = nullptr;
+    if(sLive.bars >= 20 && !(sLive.flags & (FLAG_BUILDUP | FLAG_FINALE))){
+        static const char* const CHORD_NAME[4] = { "Am", "Dm", "Em", "C" };
+        chord = CHORD_NAME[((bar - 1) / kHarmBars) % 4];
+    }
 
     char vubar[160], stepbuf[24], progbuf[14];
     RenderVuColor(vu, 16, vubar);
@@ -1350,11 +1389,12 @@ static void MonitorLive()
            C(A_BGRN), ibar, C(A_RST),
            C(A_RST), (int)monCutoff, fmCol, fmv_n, C(A_RST));
     } else {
-        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %s%s/%s/%s%s fc=%d v:%s%d%s",
+        PL(" %sB%d%s s%02d [%s%s%s] VU[%s] [%s%s%s] %s%s/%s/%s%s %s%s%s fc=%d v:%s%d%s",
            beatCol, beat, C(A_RST), stp,
            col, stepbuf, C(A_RST), vubar,
            col, progbuf, C(A_RST),
            C(A_DIM), DK_NAME[monDrum], BE_NAME[monBass], LE_NAME[monLead], C(A_RST),
+           chord ? C(A_BMAG) : C(A_DIM), chord ? chord : "--", C(A_RST),
            (int)monCutoff, fmCol, fmv_n, C(A_RST));
     }
 }

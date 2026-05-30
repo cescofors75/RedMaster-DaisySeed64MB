@@ -43,7 +43,7 @@ energía
 | 9 | 4:00 | **FUNKY ELECTRO** | 24 | 505 | 303 | FM | funk | slap(7) / — | 900 | 0.80 | 0.48 | 0.45 | 14 | FUNK | ECHO (6) |
 | 10 | 4:44 | **MICRO-BREAK** | 4 | 909 | 303 | FM | — | — / bells(0) | 200 | 0.60 | 0.95 | 0.45 | — | — | corte |
 | 11 | 4:51 | **MINIMAL TECHNO** | 20 | 505 | SH101 | **WT** | 4×4 | sparse(3) / ostinato(3) | 650 | 0.60 | 0.78 | 0.62 | — | **PREVIEW** | 🧱 WALL → SNAP (8) |
-| 12 | 5:27 | **TRANCE SUPERSAW** | 28 | 909 | 303 | **WT** | 4×4 | rolling-oct(5) / arp(4) | 420 | 0.82 | 0.88 | 0.55 | — | CRASH | WASH (8) |
+| 12 | 5:27 | **TRANCE SUPERSAW** | 28 | 505 | 303 | **WT** | 4×4 | rolling-oct(5) / arp(4) | 420 | 0.82 | 0.88 | 0.55 | — | CRASH | WASH (8) |
 | 13 | 6:18 | **TRIBAL PERC** | 16 | 808 | 303 | **WT** | 4×4 | ostinato(0) / chords(2) | 500 | 0.70 | 0.60 | 0.50 | 8 | TOMS+CRASH | STRIP (6) |
 | 14 | 6:47 | **BUILDUP** | 16 | 909 | 303 | FM | 4×4 | — / arp(4) | 420 | 0.82 | 0.92 | 0.55 | — | **BUILDUP** | slam |
 | 15 | 7:16 | **PEAK DROP** | 32 | 909 | 303 | **WT** | 4×4 | peak(5) / **anthem(8)** | 1100 | 0.88 | 0.65 | 0.45 | — | CRASH | STRIP (4) |

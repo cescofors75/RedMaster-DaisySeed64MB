@@ -641,7 +641,7 @@ static const EngineSel SEC_ENGINE[NUM_SECTIONS] = {
     { DK_505, BE_303,   LE_FM },  /* 9  Funky electro   */
     { DK_909, BE_303,   LE_FM },  /* 10 Micro-break     */
     { DK_505, BE_SH101, LE_WT },  /* 11 Minimal         ← WT */
-    { DK_909, BE_303,   LE_WT },  /* 12 Trance supersaw ← WT saves ~18% CPU */
+    { DK_505, BE_303,   LE_WT },  /* 12 Trance supersaw — 505 kick/clap más ligero */
     { DK_808, BE_303,   LE_WT },  /* 13 Tribal (congas) ← WT */
     { DK_909, BE_303,   LE_FM },  /* 14 Buildup         */
     { DK_909, BE_303,   LE_WT },  /* 15 Peak drop       ← WT */

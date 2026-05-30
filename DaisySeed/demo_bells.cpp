@@ -534,6 +534,59 @@ static const char* const MIX_NAME[5] = {
     "CUT", "FILTER-SWEEP", "ECHO-OUT", "REVERB-WASH", "STRIP-KICK"
 };
 
+/* ── LA HISTORIA ──────────────────────────────────────────────────
+ *  Una frase por seccion: el set se lee como una novela y se siente
+ *  como un viaje emocional. De la oscuridad al jubilo, y vuelta a
+ *  empezar. (ASCII puro para que ningun terminal serie lo rompa.)
+ * ─────────────────────────────────────────────────────────────────*/
+static const char* const SEC_STORY[NUM_SECTIONS] = {
+    "Algo nace en la oscuridad... el amanecer de Detroit",       /* 1  */
+    "Primer latido. La ciudad despierta y se pone en marcha",    /* 2  */
+    "Un suspiro. Contienes el aliento...",                       /* 3  */
+    "La chispa acida prende. Empieza el viaje",                  /* 4  */
+    "El acido hierve. Ya no puedes quedarte quieto",             /* 5  */
+    "Las caderas toman el control. Groove de calle",             /* 6  */
+    "Respira. Calor humano, las manos se buscan",                /* 7  */
+    "Te sumerges. Profundo, hipnotico, sin fondo",               /* 8  */
+    "Sonries. El cuerpo juega, el funk manda",                   /* 9  */
+    "Silencio... todos se miran. Que viene ahora?",              /* 10 */
+    "El pulso hipnotico te atrapa, latido a latido",             /* 11 */
+    "Manos al cielo. Lagrimas de felicidad",                     /* 12 */
+    "La tribu. Fuego, tambores, tierra bajo los pies",           /* 13 */
+    "Sube... sube... la tension lo invade todo",                 /* 14 */
+    "EL CLIMAX. Todos saltan a la vez!",                         /* 15 */
+    "Ultima subida. El corazon a mil por hora",                  /* 16 */
+    "EXTASIS TOTAL. Jubileo. Nadie para de bailar!!!",           /* 17 */
+    "La calma. Nada volvera a ser igual... y vuelve a empezar",  /* 18 */
+};
+
+/* ── CURVA DE ENERGIA (dinamica narrativa) ────────────────────────
+ *  Ganancia master objetivo por seccion. NUNCA supera 1.0 (los picos
+ *  ya estan al limite), solo BAJA los momentos calmados para que el
+ *  set respire como una novela: intro intimo, subidas que crecen,
+ *  drops que golpean por contraste. Asi "emociona" de verdad.
+ * ─────────────────────────────────────────────────────────────────*/
+static const float SEC_GAIN[NUM_SECTIONS] = {
+    0.78f,  /* 1  intro intimo, casi un susurro    */
+    0.90f,  /* 2  primer groove, la cosa arranca   */
+    0.80f,  /* 3  breakdown, aire                  */
+    0.94f,  /* 4  acid house sube                  */
+    1.00f,  /* 5  acid peak, intensidad            */
+    0.92f,  /* 6  garage groovy                    */
+    0.90f,  /* 7  organic, calido                  */
+    0.93f,  /* 8  deep house                       */
+    0.95f,  /* 9  funky, juguetón                  */
+    0.74f,  /* 10 micro-break, suspense            */
+    0.88f,  /* 11 minimal hipnotico                */
+    1.00f,  /* 12 trance, clímax emocional         */
+    0.97f,  /* 13 tribal, fuego                    */
+    0.90f,  /* 14 buildup, dip antes del drop      */
+    1.00f,  /* 15 PEAK DROP                        */
+    0.90f,  /* 16 final buildup, dip               */
+    1.00f,  /* 17 FINAL DROP, extasis              */
+    0.78f,  /* 18 reset, resolucion                */
+};
+
 /* ═══════════════════════════════════════════════════════════════════
  *  SELECCIÓN DE ENGINE POR SECCIÓN (tabla paralela a SECTIONS)
  *  drum: DK_909/808/505 · bass: BE_303/SH101 · lead: LE_FM/WT
@@ -860,9 +913,12 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
     dlyFb += (tDlyFb - dlyFb) * 0.015f;
     reverb.SetFeedback(Clampf(revFb, 0.0f, 0.99f));
 
-    /* Ganancia máster — FINALE ya tiene suficiente energía sin empuje extra */
-    float gainTgt = 1.0f;
-    masterGain += (gainTgt - masterGain) * 0.001f;
+    /* Ganancia máster — curva de energía narrativa por sección.
+     * El set respira: intro íntimo → drops que golpean por contraste.
+     * Nunca supera 1.0, así que no añade clipping. Lerp lento (~1 compás)
+     * para que la subida/bajada de nivel sea musical, no un escalón. */
+    float gainTgt = SEC_GAIN[secIdx];
+    masterGain += (gainTgt - masterGain) * 0.0008f;
 
     /* ── Bucle de samples ── */
     for(size_t i = 0; i < size; i++)
@@ -1075,6 +1131,10 @@ static void MonitorBanner(int idx)
        col, C(A_RST), C(A_BWHT), energy, C(A_RST),
        (int)BPM, (unsigned long)kStepSamples, col, C(A_RST));
     PL("%s+==================================================+%s", col, C(A_RST));
+    /* ── La historia: una novela que se baila ── */
+    PL("  %s\"%s\"%s", C(A_BYEL), SEC_STORY[idx], C(A_RST));
+    PL("  %senergia%s: %s%d%%%s", C(A_DIM), C(A_RST),
+       C(A_BWHT), (int)(SEC_GAIN[idx] * 100.0f + 0.5f), C(A_RST));
     if(s.swing)
         PL("  %sswing%s  T+=%-3d T-=%-3d smp  (~%d.%d ms)",
            C(A_DIM), C(A_RST), (int)s.swing, (int)s.swing, swMs10/10, swMs10%10);

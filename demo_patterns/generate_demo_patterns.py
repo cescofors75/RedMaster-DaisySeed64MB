@@ -1,239 +1,167 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Generador de banco de patrones a partir del DEMO de la Daisy.
+Generador del banco de 19 patrones — UNA SECCION DEL DEMO POR PATRON.
 
-Extrae el material musical del self-test de arranque de la Daisy
-(RunStartup808SelfTest, DaisySeed/main.cpp:2367 PH_SYNTH_JAM) y lo convierte
-en 19 patrones en el formato JSON que carga el master ESP32-S3
-(WebInterface.cpp -> loadPatternBankFromFs).
+Sigue el orden de fases del self-test de la Daisy (RunStartup808SelfTest):
+  Samplers -> 808 -> 909 -> 505 -> 303 -> XTRA -> Sampler FX -> Techno/Electro/Ambient,
+y rellena con variantes hasta 19.
 
-Material de origen (idéntico al firmware Daisy):
-  jamNotes        (TECHNO)  = 36 36 43 .  41 41 48 .  45 45 50 48  43 41 38 .
-  jamNotesElectro (ELECTRO) = 36 43 36 .  48 46 43 .  41 43 45 .   50 48 46 43
-  jamNotesAmbient (AMBIENT) = 36 .  43 .  48 .  50 .  53 .  48 .   45 .  41 .
-  notes303 (escala)         = 36 38 41 43 45 48 50 53
+Melodia 303: SOLO donde el demo la tenia (seccion 303 y los jams). Las secciones
+de bateria se escanean/tocan sin bajo (fiel al self-test).
 
-Reglas de accent/slide del demo:
-  no-ambient: accent = (st%4==0) o st in {6,14};  slide = (st%8==3) o st==11
-  ambient:    accent = (st%8==0);                 slide = (st%8==7)
+Engine POR PATRON y POR TRACK: gracias al recall de engine/preset en el S3
+(setTrackEngine + dsqUploadPattern), cada patron define el motor de cada track,
+asi un mismo track puede ser 808 en un patron y 909 en otro.
 
-Reglas de percusión del demo (st = 0..15):
-  TECHNO : kick st%4==0 | snare {4,12} | hatC impares | clap {7,15} | ride {10}
-  ELECTRO: kick {0,6,8,14} | snare {4,12} | hatO st%4==2 | hatC impares | cowbell {11}
-  AMBIENT: kick {0,8} | clap {4,12} | crash {6,14} | hatO st%4==2
-
-NOTA IMPORTANTE (limitacion del firmware): el engine es GLOBAL por track
-(gTrackSynthEngine[16] en S3 main.cpp:88), NO por patron. Por eso todo el banco
-comparte un unico mapa track->engine, definido en TRACK_ENGINES abajo.
+  engine: -1 sampler | 0=808 | 1=909 | 2=505 | 3=303
+  presets 808: 0 Classic 2 Techno · 909: 0 Classic 1 Techno · 505: 0 Classic 2 Electro
+  presets 303: 0 Acid 1 Squelch 2 SubBass 3 SoftLead
 """
 import json
 
 STEPS = 16
 
-# ── Mapa GLOBAL track -> engine (compartido por TODOS los patrones) ──────────
-# engine: -1 sampler | 0=808 | 1=909 | 2=505 | 3=303 | 4=WTOSC | 5=SH101 | 6=FM2Op
-# El indice de track mapea a instrumento via padTo808/909/505 de la Daisy:
-#   0 BD · 1 SD · 2 CH · 3 OH · 4 CY · 5 CP · 6 CB · 7 (303) · 8 LT · 9 MT · 10 HT
-TRACK_ENGINES = [
-    0,   # 0  BD  kick      (808)
-    1,   # 1  SD  snare     (909)
-    2,   # 2  CH  closed hat(505)
-    1,   # 3  OH  open hat  (909)
-    1,   # 4  CY  crash/ride(909)
-    0,   # 5  CP  clap      (808)
-    2,   # 6  CB  cowbell   (505)
-    3,   # 7  303 ACID BASS (melodia)  <-- nota por paso
-    0,   # 8  LT  low tom   (808)
-    0,   # 9  MT  mid tom   (808)
-    0,   # 10 HT  hi tom    (808)
-    -1, -1, -1, -1, -1,   # 11-15 libres (sampler)
-]
-T_BD, T_SD, T_CH, T_OH, T_CY, T_CP, T_CB, T_303, T_LT, T_MT, T_HT = range(11)
+# Track -> instrumento (igual en 808/909/505, segun padToXXX de la Daisy):
+# 0 BD 1 SD 2 CH 3 OH 4 CY 5 CP 6 RS 7 CB 8 LT 9 MT 10 HT 11 MA 12 CL 13 HC 14 MC 15 LC
+INST = ["BD","SD","CH","OH","CY","CP","RS","CB","LT","MT","HT","MA","CL","HC","MC","LC"]
 
-TRACK_NAMES = ["BD","SD","CH","OH","CY","CP","CB","303","LT","MT","HT",
-               "-","-","-","-","-"]
-
-# ── Lineas de bajo 303 (idénticas al demo Daisy) ─────────────────────────────
+# Lineas de bajo 303 del demo (idénticas al firmware)
 JAM_TECHNO  = [36,36,43,0, 41,41,48,0, 45,45,50,48, 43,41,38,0]
 JAM_ELECTRO = [36,43,36,0, 48,46,43,0, 41,43,45,0, 50,48,46,43]
 JAM_AMBIENT = [36,0,43,0, 48,0,50,0, 53,0,48,0, 45,0,41,0]
 SCALE_303   = [36,38,41,43,45,48,50,53]
 
-# ── Presets por estilo (preset que recuerda cada patron, por engine) ─────────
-# 808: 0 Classic 1 HipHop 2 Techno 3 Latin 4 Pure
-# 909: 0 Classic 1 Techno 2 HousePound 3 Industrial 4 Pure
-# 505: 0 Classic 1 NewWave 2 Electro 3 LoFiHipHop 4 Pure
-# 303: 0 Acid 1 Squelch 2 SubBass 3 SoftLead
-PRESETS_BY_STYLE = {
-    "techno":  {0: 2, 1: 1, 2: 2, 3: 0},   # 808 Techno, 909 Techno, 505 Electro, 303 Acid
-    "electro": {0: 4, 1: 2, 2: 2, 3: 1},   # 808 Pure, 909 HousePound, 505 Electro, 303 Squelch
-    "ambient": {0: 0, 1: 3, 2: 1, 3: 2},   # 808 Classic, 909 Industrial, 505 NewWave, 303 SubBass
-    "acid":    {0: 0, 1: 0, 2: 0, 3: 0},   # 303 Acid + drums Classic
-    "fill":    {0: 0, 1: 0, 2: 0, 3: 0},
-}
+ENG_SAMPLER, ENG_808, ENG_909, ENG_505, ENG_303 = -1, 0, 1, 2, 3
 
-def preset_for(track, style):
-    eng = TRACK_ENGINES[track]
-    if eng < 0:
-        return 0
-    return PRESETS_BY_STYLE.get(style, PRESETS_BY_STYLE["acid"]).get(eng, 0)
 
 def flags_for(st, ambient):
-    """Devuelve byte de flags: bit0=accent, bit1=slide (regla del demo)."""
     if ambient:
-        accent = (st % 8 == 0)
-        slide  = (st % 8 == 7)
+        accent = (st % 8 == 0); slide = (st % 8 == 7)
     else:
-        accent = (st % 4 == 0) or st in (6, 14)
-        slide  = (st % 8 == 3) or (st == 11)
+        accent = (st % 4 == 0) or st in (6, 14); slide = (st % 8 == 3) or (st == 11)
     return (1 if accent else 0) | (2 if slide else 0)
 
-def drum_track(track, hits, style, vel=110, accents=None, accent_vel=124):
-    steps = [0]*STEPS
-    vels  = [0]*STEPS
+
+def drum(track, engine, hits, preset=0, vel=110, accents=None, accent_vel=124):
+    steps = [0]*STEPS; vels = [0]*STEPS
     for s in hits:
         steps[s] = 1
         vels[s]  = accent_vel if (accents and s in accents) else vel
-    return {"track": track, "name": TRACK_NAMES[track],
-            "engine": TRACK_ENGINES[track], "preset": preset_for(track, style),
-            "steps": steps, "velocities": vels}
+    return {"track": track, "name": INST[track], "engine": engine,
+            "preset": preset, "steps": steps, "velocities": vels}
 
-def acid_track(notes, ambient, style):
-    """Track 303 con nota por paso, accent/slide y velocidades."""
+
+def acid(track, notes, ambient, preset=0):
     steps = [0]*STEPS; vels = [0]*STEPS; nts = [0]*STEPS; flgs = [0]*STEPS
     for st in range(STEPS):
         n = notes[st] if st < len(notes) else 0
         nts[st] = n
         if n:
-            f = flags_for(st, ambient)
-            flgs[st] = f
-            steps[st] = 1
-            vels[st]  = 122 if (f & 1) else 100
-    return {"track": T_303, "name": "303", "engine": 3,
-            "preset": preset_for(T_303, style),
+            f = flags_for(st, ambient); flgs[st] = f
+            steps[st] = 1; vels[st] = 122 if (f & 1) else 100
+    return {"track": track, "name": "303", "engine": ENG_303, "preset": preset,
             "steps": steps, "velocities": vels, "notes": nts, "flags": flgs}
 
-# ── Sets de percusion del demo ───────────────────────────────────────────────
+
+def scan(engine, n_instruments, preset=0, vel=112):
+    """Escaneo: instrumento t en el paso t (showcase del kit)."""
+    return [drum(t, engine, [t], preset=preset, vel=vel) for t in range(n_instruments)]
+
+
+# ── Jams del demo (drums con engine por track + 303 en track 7) ──────────────
 def techno_drums():
-    s = "techno"
     return [
-        drum_track(T_BD, [0,4,8,12], s, vel=120, accents=[0,8]),
-        drum_track(T_SD, [4,12],     s, vel=112),
-        drum_track(T_CH, [1,3,5,7,9,11,13,15], s, vel=78),
-        drum_track(T_CP, [7,15],     s, vel=96),
-        drum_track(T_CY, [10],       s, vel=88),   # ride
+        drum(0, ENG_808, [0,4,8,12], preset=2, vel=120, accents=[0,8]),
+        drum(1, ENG_909, [4,12],     preset=1, vel=112),
+        drum(2, ENG_505, [1,3,5,7,9,11,13,15], preset=2, vel=78),
+        drum(5, ENG_505, [7,15],     preset=2, vel=96),
+        drum(4, ENG_909, [10],       preset=1, vel=88),
     ]
 def electro_drums():
-    s = "electro"
     return [
-        drum_track(T_BD, [0,6,8,14], s, vel=120, accents=[0,8]),
-        drum_track(T_SD, [4,12],     s, vel=110),
-        drum_track(T_OH, [2,6,10,14],s, vel=82),
-        drum_track(T_CH, [1,3,5,7,9,11,13,15], s, vel=70),
-        drum_track(T_CB, [11],       s, vel=92),   # cowbell
+        drum(0, ENG_909, [0,6,8,14], preset=2, vel=120, accents=[0,8]),
+        drum(1, ENG_505, [4,12],     preset=2, vel=110),
+        drum(3, ENG_909, [2,6,10,14],preset=2, vel=82),
+        drum(2, ENG_505, [1,3,5,7,9,11,13,15], preset=2, vel=70),
+        drum(7, ENG_505, [11],       preset=2, vel=92),   # cowbell
     ]
 def ambient_drums():
-    s = "ambient"
     return [
-        drum_track(T_BD, [0,8],      s, vel=96),
-        drum_track(T_CP, [4,12],     s, vel=72),
-        drum_track(T_CY, [6,14],     s, vel=64),   # crash
-        drum_track(T_OH, [2,6,10,14],s, vel=58),
+        drum(0, ENG_808, [0,8],      preset=0, vel=96),
+        drum(5, ENG_808, [4,12],     preset=0, vel=72),   # clap
+        drum(4, ENG_909, [6,14],     preset=3, vel=64),   # crash
+        drum(3, ENG_505, [2,6,10,14],preset=0, vel=58),
     ]
 
-# ── Definicion de los 19 patrones ────────────────────────────────────────────
+
 def build_patterns():
     P = []
     def add(slot, name, tracks):
         P.append({"slot": slot, "name": name, "tracks": tracks})
 
-    # TECHNO (0-4)
-    add(0, "TECHNO FULL",  techno_drums() + [acid_track(JAM_TECHNO, False, "techno")])
-    add(1, "TECHNO BUILD", techno_drums() + [
-        drum_track(T_OH, [2,6,10,14], "techno", vel=74),
-        acid_track(JAM_TECHNO, False, "techno")])
-    add(2, "TECHNO DRUMS", techno_drums())
-    add(3, "TECHNO ACID",  [drum_track(T_BD, [0,4,8,12], "techno", vel=120)] +
-                           [acid_track(JAM_TECHNO, False, "techno")])
-    add(4, "TECHNO BREAK", [drum_track(T_CH, list(range(STEPS)), "techno", vel=70),
-                            drum_track(T_CP, [7,15], "techno", vel=100),
-                            acid_track(JAM_TECHNO, False, "techno")])
+    # ── 1-10: una por seccion del demo (orden del self-test) ──
+    add(0, "SAMPLERS",   [drum(t, ENG_SAMPLER, [t], vel=115) for t in range(16)])
+    add(1, "808 SCAN",   scan(ENG_808, 16, preset=0))
+    add(2, "909 SCAN",   scan(ENG_909, 11, preset=0))
+    add(3, "505 SCAN",   scan(ENG_505, 11, preset=0))
+    # 303: escala notes303 a lo largo de 16 pasos (MELODIA)
+    escala = [SCALE_303[i % 8] for i in range(STEPS)]
+    add(4, "303 ESCALA", [acid(0, escala, False, preset=0)])
+    # XTRA: los pads xtra (16-23) NO entran en la rejilla de 16 tracks ->
+    # se aproxima con un groove de samplers (ver README).
+    add(5, "XTRA",       [drum(t, ENG_SAMPLER, [t*4 % STEPS, t*4 % STEPS + 2], vel=110)
+                          for t in range(4)])
+    # SAMPLER FX: groove de samplers (la automatizacion de FX no va en el banco)
+    add(6, "SAMPLER FX", [drum(0, ENG_SAMPLER, [0,4,8,12], vel=118),
+                          drum(1, ENG_SAMPLER, [2,6,10,14], vel=96),
+                          drum(2, ENG_SAMPLER, [1,3,5,7,9,11,13,15], vel=70)])
+    add(7, "TECHNO",  techno_drums()  + [acid(7, JAM_TECHNO,  False, preset=0)])
+    add(8, "ELECTRO", electro_drums() + [acid(6, JAM_ELECTRO, False, preset=1)])
+    add(9, "AMBIENT", ambient_drums() + [acid(7, JAM_AMBIENT, True,  preset=2)])
 
-    # ELECTRO (5-9)
-    add(5, "ELECTRO FULL",  electro_drums() + [acid_track(JAM_ELECTRO, False, "electro")])
-    add(6, "ELECTRO BUILD", electro_drums() + [
-        drum_track(T_CY, [0,8], "electro", vel=70),
-        acid_track(JAM_ELECTRO, False, "electro")])
-    add(7, "ELECTRO DRUMS", electro_drums())
-    add(8, "ELECTRO ACID",  [drum_track(T_BD, [0,6,8,14], "electro", vel=118)] +
-                            [acid_track(JAM_ELECTRO, False, "electro")])
-    add(9, "ELECTRO BREAK", [drum_track(T_CH, list(range(STEPS)), "electro", vel=66),
-                             drum_track(T_CB, [3,7,11,15], "electro", vel=92),
-                             acid_track(JAM_ELECTRO, False, "electro")])
-
-    # AMBIENT (10-13)
-    add(10, "AMBIENT FULL",   ambient_drums() + [acid_track(JAM_AMBIENT, True, "ambient")])
-    add(11, "AMBIENT SPARSE", [drum_track(T_BD, [0,8], "ambient", vel=90),
-                               acid_track(JAM_AMBIENT, True, "ambient")])
-    add(12, "AMBIENT DRUMS",  ambient_drums())
-    add(13, "AMBIENT PAD",    [acid_track(JAM_AMBIENT, True, "ambient")])
-
-    # ACID STUDIES (14-16) - escala notes303
-    up   = [SCALE_303[i % 8] for i in range(STEPS)]
-    down = [SCALE_303[(7 - (i % 8))] for i in range(STEPS)]
-    octv = []
-    for i in range(STEPS // 2):
-        octv += [SCALE_303[i % 8], SCALE_303[(i + 4) % 8]]
-    add(14, "ACID RUN UP",   [drum_track(T_BD, [0,4,8,12], "acid", vel=116),
-                              acid_track(up, False, "acid")])
-    add(15, "ACID RUN DOWN", [drum_track(T_BD, [0,4,8,12], "acid", vel=116),
-                              acid_track(down, False, "acid")])
-    add(16, "ACID OCTAVE",   [drum_track(T_BD, [0,4,8,12], "acid", vel=116),
-                              acid_track(octv, False, "acid")])
-
-    # FILLS / TRANSICIONES (17-18)
-    add(17, "TOM FILL", [
-        drum_track(T_LT, [0,1,2,3],   "fill", vel=110),
-        drum_track(T_MT, [4,5,6,7],   "fill", vel=114),
-        drum_track(T_HT, [8,9,10,11], "fill", vel=118),
-        drum_track(T_SD, [12,13,14,15], "fill", vel=122)])
-    roll = {"track": T_SD, "name": "SD", "engine": TRACK_ENGINES[T_SD],
-            "preset": preset_for(T_SD, "fill"),
-            "steps": [1]*STEPS,
-            "velocities": [60 + int((127-60) * (i/(STEPS-1))) for i in range(STEPS)]}
-    add(18, "SNARE ROLL", [roll])
+    # ── 11-19: variantes (grooves de cada caja + lineas 303 + jams sin/con bajo) ──
+    add(10, "808 BEAT", [drum(0, ENG_808, [0,4,8,12], preset=2, vel=120, accents=[0]),
+                         drum(1, ENG_808, [4,12], preset=2, vel=110),
+                         drum(2, ENG_808, [1,3,5,7,9,11,13,15], preset=2, vel=76)])
+    add(11, "909 BEAT", [drum(0, ENG_909, [0,4,8,12], preset=1, vel=120, accents=[0]),
+                         drum(1, ENG_909, [4,12], preset=1, vel=112),
+                         drum(3, ENG_909, [2,6,10,14], preset=1, vel=80)])
+    add(12, "505 BEAT", [drum(0, ENG_505, [0,3,6,10], preset=2, vel=116),
+                         drum(1, ENG_505, [4,12], preset=2, vel=108),
+                         drum(2, ENG_505, [1,3,5,7,9,11,13,15], preset=2, vel=72)])
+    add(13, "ACID LINE A", [acid(0, JAM_TECHNO,  False, preset=0)])   # MELODIA
+    add(14, "ACID LINE B", [acid(0, JAM_ELECTRO, False, preset=1)])   # MELODIA
+    add(15, "TECHNO DRUMS",  techno_drums())
+    add(16, "ELECTRO DRUMS", electro_drums())
+    add(17, "AMBIENT DRUMS", ambient_drums())
+    add(18, "FULL JAM", techno_drums() + [acid(7, JAM_TECHNO, False, preset=0)])  # MELODIA
     return P
 
+
 def build_song_chain():
-    # Un recorrido por el banco (pattern, repeats) 1..16
     return [
-        {"pattern": 2,  "repeats": 1},  # TECHNO DRUMS (intro)
-        {"pattern": 0,  "repeats": 4},  # TECHNO FULL
-        {"pattern": 1,  "repeats": 2},  # TECHNO BUILD
-        {"pattern": 17, "repeats": 1},  # TOM FILL
-        {"pattern": 5,  "repeats": 4},  # ELECTRO FULL
-        {"pattern": 6,  "repeats": 2},  # ELECTRO BUILD
-        {"pattern": 18, "repeats": 1},  # SNARE ROLL
-        {"pattern": 10, "repeats": 4},  # AMBIENT FULL
-        {"pattern": 13, "repeats": 2},  # AMBIENT PAD (outro)
+        {"pattern": 0, "repeats": 1}, {"pattern": 1, "repeats": 1},
+        {"pattern": 2, "repeats": 1}, {"pattern": 3, "repeats": 1},
+        {"pattern": 4, "repeats": 2}, {"pattern": 7, "repeats": 4},
+        {"pattern": 8, "repeats": 4}, {"pattern": 9, "repeats": 4},
     ]
+
 
 def main():
     bank = {
-        "name": "19 Temas Demo Daisy (Techno/Electro/Ambient + Acid)",
-        "tempo": 124,
-        "stepCount": STEPS,
-        "selectPattern": 0,
-        "trackEngines": TRACK_ENGINES,
+        "name": "19 Secciones Demo Daisy (samplers/808/909/505/303 + jams)",
+        "tempo": 124, "stepCount": STEPS, "selectPattern": 0,
         "patterns": build_patterns(),
         "songChain": build_song_chain(),
     }
     out = "19_temas_demo_daisy.json"
     with open(out, "w", encoding="utf-8") as f:
         json.dump(bank, f, ensure_ascii=False, indent=1)
-    print(f"OK -> {out}: {len(bank['patterns'])} patrones, "
-          f"songChain {len(bank['songChain'])} entradas, stepCount {STEPS}")
+    mel = [p["slot"] for p in bank["patterns"]
+           if any(t.get("engine") == 3 for t in p["tracks"])]
+    print(f"OK -> {out}: {len(bank['patterns'])} patrones; "
+          f"con melodia 303 en slots {mel}")
 
 if __name__ == "__main__":
     main()

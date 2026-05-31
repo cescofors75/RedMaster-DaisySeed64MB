@@ -28,17 +28,37 @@ P4 7" (UI) ──UDP──► ESP32-S3 (master, secuenciador) ──SPI──►
 | **S3** | ✅ | ✅ loader lee `notes`/`flags` | ✅ preset **por patrón** | `s3_presets_melody.patch` |
 | **P4** | ✅ | ✅ | ✅ | `p4_19_patterns.patch` |
 
-## Los 19 patrones
+## Los 19 patrones — UNA SECCIÓN DEL DEMO POR PATRÓN
 
-| slot | nombre | contenido |
-|---|---|---|
-| 0–4 | TECHNO FULL/BUILD/DRUMS/ACID/BREAK | drums + 303 (jamNotes) |
-| 5–9 | ELECTRO * | jamNotesElectro |
-| 10–13 | AMBIENT * | jamNotesAmbient |
-| 14–16 | ACID UP / DOWN / OCTAVE | escala notes303 |
-| 17–18 | TOM FILL / SNARE ROLL | fills |
+Siguen el orden de fases del self-test de la Daisy. **Melodía 303 solo donde el
+demo la tenía** (sección 303 y jams); las secciones de batería van sin bajo.
 
-\+ `songChain` de 9 entradas (Techno → Electro → Ambient).
+| slot | nombre | sección del demo | engine(s) | melodía |
+|---|---|---|---|---|
+| 0 | SAMPLERS | pads de sample (scan) | sampler | — |
+| 1 | 808 SCAN | 16 instrumentos 808 | 808 | — |
+| 2 | 909 SCAN | 11 instrumentos 909 | 909 | — |
+| 3 | 505 SCAN | 11 instrumentos 505 | 505 | — |
+| 4 | 303 ESCALA | escala `notes303` | 303 | ✅ |
+| 5 | XTRA | pads xtra (aprox.)¹ | sampler | — |
+| 6 | SAMPLER FX | groove de samples² | sampler | — |
+| 7 | TECHNO | jam techno | 808/909/505/303 | ✅ |
+| 8 | ELECTRO | jam electro | 909/505/303 | ✅ |
+| 9 | AMBIENT | jam ambient | 808/909/505/303 | ✅ |
+| 10–12 | 808/909/505 BEAT | groove de cada caja | 808 / 909 / 505 | — |
+| 13–14 | ACID LINE A/B | líneas de bajo 303 | 303 | ✅ |
+| 15–17 | TECHNO/ELECTRO/AMBIENT DRUMS | jams sin bajo | drums | — |
+| 18 | FULL JAM | techno completo | 808/909/505/303 | ✅ |
+
+`songChain` recorre las secciones: scans → 303 → jams.
+
+> ¹ Los pads **xtra (16-23) no caben** en la rejilla de 16 tracks del secuenciador,
+> así que se aproximan con un groove de samplers.
+> ² La **automatización de FX** del demo no se guarda en el banco (el loader no
+> lee param-locks); el patrón deja el groove rítmico.
+
+**Engine por patrón:** cada patrón fija el motor de cada track (un mismo track es
+808 en `808 SCAN` y 909 en `909 SCAN`); el S3 lo reasigna al cambiar de patrón.
 
 ## Esquema JSON (extendido)
 

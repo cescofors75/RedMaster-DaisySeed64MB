@@ -2954,11 +2954,11 @@ static void ApplyFm2OpPreset(uint8_t presetId)
             set(8, 2.00f);  set(9, 2.80f); set(10, 0.04f); set(11, 1.0f);
             set(12, 6.0f);  set(13, 0.85f); set(14, 0.88f);
             break;
-        case 2: /* Bell */
-            set(0, 0.001f); set(1, 2.20f); set(2, 0.00f); set(3, 1.40f);
-            set(4, 0.001f); set(5, 1.10f); set(6, 0.00f); set(7, 0.80f);
-            set(8, 3.00f);  set(9, 7.20f); set(10, 0.10f); set(11, 0.0f);
-            set(12, 14.0f); set(13, 0.90f); set(14, 0.84f);
+        case 2: /* Bell — ring-mod metálica (The Bells / Mills) */
+            set(0, 0.001f); set(1, 2.60f); set(2, 0.00f); set(3, 1.40f);
+            set(4, 0.001f); set(5, 2.20f); set(6, 0.20f); set(7, 1.00f);
+            set(8, 1.41f);  set(9, 1.00f); set(10, 0.0f); set(11, 2.0f);
+            set(12, 4.0f);  set(13, 0.40f); set(14, 0.55f);
             break;
         case 3: /* Growl Lead */
             set(0, 0.004f); set(1, 0.44f); set(2, 0.28f); set(3, 0.22f);
@@ -3175,6 +3175,11 @@ static void ApplySynthPreset(uint8_t engine, uint8_t presetId)
                     set(TR909::INST_HI_PERC, 0, 0.050f); set(TR909::INST_HI_PERC, 1, 1120.0f); set(TR909::INST_HI_PERC, 2, 0.60f); set(TR909::INST_HI_PERC, 3, 0.84f);
                     set(TR909::INST_MID_PERC, 0, 0.080f); set(TR909::INST_MID_PERC, 1, 690.0f); set(TR909::INST_MID_PERC, 2, 0.44f); set(TR909::INST_MID_PERC, 3, 0.86f);
                     set(TR909::INST_LOW_PERC, 0, 0.110f); set(TR909::INST_LOW_PERC, 1, 410.0f); set(TR909::INST_LOW_PERC, 2, 0.32f); set(TR909::INST_LOW_PERC, 3, 0.88f);
+                    /* The Bells / Mills: kick distorsionado al máximo + open-hat que se derrama */
+                    synth909.kick.SetDrive(1.0f);
+                    synth909.kick.SetDecay(0.55f);
+                    synth909.kick.SetCompression(1.0f);
+                    synth909.hihatO.SetDecay(1.6f);
                     break;
                 case 4: /* Pure 909 — fiel al hardware original (kick beater click claro, sin saturacion) */
                     synth909.LoadPreset(TR909::Presets::Pure909);

@@ -3370,6 +3370,23 @@ static void ApplySynthPreset(uint8_t engine, uint8_t presetId)
                     acid303.SetDrift(0.12f);
                     acid303.SetPitchBend(0.0f);
                     break;
+                case 4: /* The Bells bass — chuffy saw (Mills) */
+                    acid303.SetCutoff(420.0f);
+                    acid303.SetResonance(0.82f);
+                    acid303.SetEnvMod(0.80f);
+                    acid303.SetDecay(0.12f);
+                    acid303.SetAccent(0.85f);
+                    acid303.SetSlide(0.08f);
+                    acid303.SetWaveform(TB303::WAVE_SAW);
+                    acid303.SetVolume(0.80f);
+                    acid303.SetAttack(0.001f);
+                    acid303.SetSustain(0.00f);
+                    acid303.SetRelease(0.12f);
+                    acid303.SetOverdrive(0.50f);
+                    acid303.SetSubLevel(0.10f);
+                    acid303.SetDrift(0.03f);
+                    acid303.SetPitchBend(0.0f);
+                    break;
             }
             break;
         case SYNTH_ENGINE_WTOSC:

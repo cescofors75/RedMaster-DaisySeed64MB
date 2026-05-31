@@ -133,6 +133,14 @@ def main():
     bank = {
         "name": "The Bells (Jeff Mills) - 19 escenas performance",
         "tempo": 132, "stepCount": STEPS, "selectPattern": 0,
+        # Etapa 2: espacio del demo (reverb larga sobre campanas + delay del clap)
+        "fx": {
+            "reverb": {"active": True, "feedback": 0.82, "lpFreq": 8500, "mix": 0.35},
+            "delay":  {"active": True, "timeMs": 375, "feedback": 0.45, "mix": 0.22},
+            # sends por track: campanas (8) a reverb; clap (5) y ride (7) al delay
+            "reverbSend": {str(T_BELLS): 70, str(T_BASS): 10},
+            "delaySend":  {str(T_CLAP): 60, str(T_RIDE): 25},
+        },
         "patterns": build_patterns(),
         "songChain": build_song_chain(),
     }

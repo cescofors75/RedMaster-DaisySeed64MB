@@ -92,7 +92,7 @@ index 769c9d3..aef0694 100644
    void setPatternBulk(int pattern, const bool stepsData[MAX_TRACKS][STEPS_PER_PATTERN], const uint8_t velsData[MAX_TRACKS][STEPS_PER_PATTERN]);
    
 diff --git a/RedMaster_ESP32S3/src/WebInterface.cpp b/RedMaster_ESP32S3/src/WebInterface.cpp
-index 7a4618a..5265895 100644
+index 7a4618a..4d992a4 100644
 --- a/RedMaster_ESP32S3/src/WebInterface.cpp
 +++ b/RedMaster_ESP32S3/src/WebInterface.cpp
 @@ -582,7 +582,7 @@ static bool loadPatternBankFromFs(const String& requestPath, String* errMsg = nu
@@ -104,7 +104,51 @@ index 7a4618a..5265895 100644
    DeserializationError error = deserializeJson(doc, f);
    f.close();
    if (error) {
-@@ -633,6 +633,52 @@ static bool loadPatternBankFromFs(const String& requestPath, String* errMsg = nu
+@@ -599,6 +599,43 @@ static bool loadPatternBankFromFs(const String& requestPath, String* errMsg = nu
+     spiMaster.setTempo(tempo);
+   }
+ 
++  // ── FX maestros del banco (bloque "fx" opcional) ─────────────────────
++  // Permite que un banco configure reverb/delay globales y los sends por
++  // track (p.ej. The Bells: reverb larga sobre campanas + delay del clap).
++  JsonObjectConst fx = doc["fx"].as<JsonObjectConst>();
++  if (!fx.isNull()) {
++    JsonObjectConst rv = fx["reverb"].as<JsonObjectConst>();
++    if (!rv.isNull()) {
++      spiMaster.setReverb(
++        rv["active"] | true,
++        (float)(rv["feedback"] | 0.82f),
++        (float)(rv["lpFreq"]   | 8500.0f),
++        (float)(rv["mix"]      | 0.30f));
++    }
++    JsonObjectConst dl = fx["delay"].as<JsonObjectConst>();
++    if (!dl.isNull()) {
++      spiMaster.setDelayActive(dl["active"] | true);
++      spiMaster.setDelayTime((float)(dl["timeMs"]   | 375.0f));
++      spiMaster.setDelayFeedback((float)(dl["feedback"] | 0.45f));
++      spiMaster.setDelayMix((float)(dl["mix"]       | 0.25f));
++    }
++    // Sends por track: fx.reverbSend / fx.delaySend = {"<track>": 0-100}
++    JsonObjectConst rs = fx["reverbSend"].as<JsonObjectConst>();
++    if (!rs.isNull())
++      for (JsonPairConst kv : rs) {
++        int t = atoi(kv.key().c_str());
++        if (t >= 0 && t < MAX_TRACKS)
++          spiMaster.setTrackReverbSend(t, (uint8_t)constrain((int)kv.value(), 0, 100));
++      }
++    JsonObjectConst ds = fx["delaySend"].as<JsonObjectConst>();
++    if (!ds.isNull())
++      for (JsonPairConst kv : ds) {
++        int t = atoi(kv.key().c_str());
++        if (t >= 0 && t < MAX_TRACKS)
++          spiMaster.setTrackDelaySend(t, (uint8_t)constrain((int)kv.value(), 0, 100));
++      }
++  }
++
+   JsonArrayConst patterns = doc["patterns"].as<JsonArrayConst>();
+   if (patterns.isNull() || patterns.size() == 0) {
+     if (errMsg) *errMsg = "no_patterns";
+@@ -633,6 +670,52 @@ static bool loadPatternBankFromFs(const String& requestPath, String* errMsg = nu
  
      sequencer.clearPattern(slot);
      sequencer.setPatternBulk(slot, stepsData, velsData);

@@ -8,6 +8,26 @@ breakdowns y solos (el "truco Mills" de mutear/desmutear bucles).
 Funciona end-to-end en los tres equipos: **Daisy** (audio), **ESP32-S3**
 (master) y **ESP32-P4** (panel táctil).
 
+## Upgrade de sonido (3 etapas, todas aplicadas)
+
+Para que suene como `demo_bells.cpp` (no solo "las mismas notas"):
+
+| Etapa | Qué | Dónde | Estado |
+|---|---|---|---|
+| **1 · Timbres** | preset campana ring-mod, kick 909 Mills (drive max), bajo 303 chuffy | Daisy `main.cpp` (presets FM2Op 2 / 909 3 / 303 4) | ✅ |
+| **2 · Espacio** | reverb larga (fb 0.82, LP 8500) + delay del clap, sends por track | S3 `WebInterface.cpp` lee bloque `fx` del JSON → comandos SPI | ✅ |
+| **3 · Polifonía** | FM2Op mono → **6 voces** (las campanas se solapan, cola 2.6 s) | Daisy `synth/fm2op.h` (clase `Poly`) + `main.cpp` | ✅ |
+
+> **Expectativa honesta:** queda un tributo **muy reconocible (~85-90%)**, no un
+> clon bit a bit. El `demo_bells.cpp` standalone tiene su propia mezcla/soft-clip
+> exactos; el firmware principal usa otra cadena de FX. El carácter (campana
+> metálica, kick sucio, cola, solapamiento) sí se recupera.
+
+> **A vigilar al testear:** (a) **CPU** con 6 voces FM + 909 + 303 — si hay
+> underruns, bajar `FM2Op::PolyT<6>` a 4. (b) El S3 manda `NoteOff` entre pasos:
+> con la clase `Poly` eso pasa las voces a *release* (no las corta en seco), así
+> que la cola se mantiene; si cortara demasiado, se afina el release.
+
 ```
 P4 7" (UI) ──UDP──► ESP32-S3 (master, secuenciador) ──SPI──► Daisy (audio)
                           ▲ WebSocket (web propia)

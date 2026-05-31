@@ -1619,7 +1619,7 @@ static TR505::Kit synth505;
 static TB303::Synth acid303;
 static WavetableOsc wtOsc;
 static SH101::Synth synthSH101;  /* I1: Roland SH-101 */
-static FM2Op::Synth synthFM2Op;  /* I2: FM 2-op Yamaha */
+static FM2Op::Poly synthFM2Op;   /* I2: FM 2-op Yamaha (6 voces polifónicas) */
 
 /* Physical Modeling engine — DaisySP ModalVoice + StringVoice */
 static ModalVoice  physModal;

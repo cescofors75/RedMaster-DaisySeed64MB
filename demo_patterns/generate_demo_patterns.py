@@ -25,8 +25,8 @@ ENG_909, ENG_303, ENG_FM = 1, 3, 6
 # Tracks (909: padTo909 → 0=KICK 3=HIHAT_O 5=CLAP 7=RIDE)
 T_KICK, T_OH, T_CLAP, T_RIDE, T_BELLS, T_BASS = 0, 3, 5, 7, 8, 10
 
-# Presets: 909 Industrial(3) | FM2Op Bell(2) | 303 Acid(0)
-PRE_909, PRE_FM, PRE_303 = 3, 2, 0
+# Presets: 909 Industrial-Mills(3) | FM2Op Bell-Mills(2) | 303 TheBells-bass(4)
+PRE_909, PRE_FM, PRE_303 = 3, 2, 4
 
 # ── Melodias reales de demo_bells.cpp ──
 kBellHi = [81,0,0,76, 0,79,0,0, 81,0,0,84, 0,83,0,0]   # A5 E5 G5 A5 C6 B5

@@ -138,8 +138,10 @@ def main():
     }
     out = "19_temas_demo_daisy.json"
     with open(out, "w", encoding="utf-8") as f:
-        json.dump(bank, f, ensure_ascii=False, indent=1)
-    print(f"OK -> {out}: {len(bank['patterns'])} escenas, tempo {bank['tempo']}")
+        json.dump(bank, f, ensure_ascii=False, separators=(",", ":"))
+    import os
+    print(f"OK -> {out}: {len(bank['patterns'])} escenas, tempo {bank['tempo']}, "
+          f"{os.path.getsize(out)} bytes (minificado)")
 
 if __name__ == "__main__":
     main()

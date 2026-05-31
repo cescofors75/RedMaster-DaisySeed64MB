@@ -92,9 +92,18 @@ index 769c9d3..aef0694 100644
    void setPatternBulk(int pattern, const bool stepsData[MAX_TRACKS][STEPS_PER_PATTERN], const uint8_t velsData[MAX_TRACKS][STEPS_PER_PATTERN]);
    
 diff --git a/RedMaster_ESP32S3/src/WebInterface.cpp b/RedMaster_ESP32S3/src/WebInterface.cpp
-index 7a4618a..f196977 100644
+index 7a4618a..336c6ee 100644
 --- a/RedMaster_ESP32S3/src/WebInterface.cpp
 +++ b/RedMaster_ESP32S3/src/WebInterface.cpp
+@@ -582,7 +582,7 @@ static bool loadPatternBankFromFs(const String& requestPath, String* errMsg = nu
+     return false;
+   }
+ 
+-  DynamicJsonDocument doc(32768);
++  DynamicJsonDocument doc(65536);  // banco de hasta ~19 patrones con melodia/voces
+   DeserializationError error = deserializeJson(doc, f);
+   f.close();
+   if (error) {
 @@ -633,6 +633,52 @@ static bool loadPatternBankFromFs(const String& requestPath, String* errMsg = nu
  
      sequencer.clearPattern(slot);

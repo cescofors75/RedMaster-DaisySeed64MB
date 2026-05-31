@@ -1,3 +1,16 @@
+diff --git a/RedMaster_ESP32S3/data/web/app.js b/RedMaster_ESP32S3/data/web/app.js
+index 452d4f4..52ab823 100644
+--- a/RedMaster_ESP32S3/data/web/app.js
++++ b/RedMaster_ESP32S3/data/web/app.js
+@@ -18,7 +18,7 @@ let lastSynthSwitchMs = new Array(16).fill(0);
+ let synthSwitchPendingTimers = new Array(16).fill(null);
+ let currentPatternIndex = 0; // Track current pattern for keyboard nav
+ 
+-const PATTERN_NAMES = ['HIP HOP', 'TECHNO', 'DnB', 'BREAK', 'HOUSE', 'TRAP'];
++const PATTERN_NAMES = ['TECHNO FULL', 'TECHNO BUILD', 'TECHNO DRUMS', 'TECHNO ACID', 'TECHNO BREAK', 'ELECTRO FULL', 'ELECTRO BUILD', 'ELECTRO DRUMS', 'ELECTRO ACID', 'ELECTRO BREAK', 'AMBIENT FULL', 'AMBIENT SPARSE', 'AMBIENT DRUMS', 'AMBIENT PAD', 'ACID RUN UP', 'ACID RUN DOWN', 'ACID OCTAVE', 'TOM FILL', 'SNARE ROLL'];
+ 
+ function clearTimerMap(timerMap) {
+     Object.keys(timerMap).forEach((key) => {
 diff --git a/RedMaster_ESP32S3/src/Sequencer.cpp b/RedMaster_ESP32S3/src/Sequencer.cpp
 index eb47982..cc03cee 100644
 --- a/RedMaster_ESP32S3/src/Sequencer.cpp
@@ -122,7 +135,7 @@ index 7a4618a..ca5c4a4 100644
  
    JsonArrayConst songChain = doc["songChain"].as<JsonArrayConst>();
 diff --git a/RedMaster_ESP32S3/src/main.cpp b/RedMaster_ESP32S3/src/main.cpp
-index 0bb92ff..739a43d 100644
+index 0bb92ff..dfb4f6a 100644
 --- a/RedMaster_ESP32S3/src/main.cpp
 +++ b/RedMaster_ESP32S3/src/main.cpp
 @@ -336,6 +336,22 @@ void dsqUploadPattern(int pattern) {
@@ -148,3 +161,24 @@ index 0bb92ff..739a43d 100644
  }
  
  // CORE 1: Sequencer UI + SPI Master
+@@ -1133,8 +1149,18 @@ void setup() {
+         delay(500);
+     }
+ 
+-        // Pattern bank autoload disabled: using built-in 6 sampler patterns (HIP HOP, TECHNO, DnB, BREAK, HOUSE, TRAP)
+-        syslog("BOOT", "Pattern bank autoload disabled: using built-in 6 sampler patterns");
++        // Autoload del banco demo de 19 temas (ritmo + melodia 303 + presets).
++        // Extraido del demo de la Daisy. Si el JSON no esta en LittleFS
++        // (falta 'pio run -t uploadfs'), se mantienen los 6 patrones inline.
++        {
++            String bankErr;
++            if (webInterface.loadPatternBank("19_temas_demo_daisy.json", &bankErr)) {
++                syslog("BOOT", "Banco demo '19_temas_demo_daisy.json' cargado (19 patrones)");
++            } else {
++                syslog("BOOT", "Banco demo NO cargado (%s); uso 6 patrones inline",
++                       bankErr.c_str());
++            }
++        }
+ 
+     webInterface.setMIDIController(&midiController);
+     midiController.setMessageCallback([](const MIDIMessage& msg) {

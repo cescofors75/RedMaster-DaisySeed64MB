@@ -72,30 +72,56 @@ estilo (ver generador): Techno→808 *Techno*/909 *Techno*/303 *Acid*; Electro�
 > del S3 es global; el recall por patrón lo actualiza en cada switch. Es el
 > comportamiento deseado para este banco.
 
+## ⚠️ Por qué solo se veían 6 patrones (resuelto)
+
+Dos cosas tapaban el banco, ya arregladas en `s3_presets_melody.patch`:
+
+1. **Autoload desactivado.** El S3 arrancaba con 6 patrones *inline* hardcodeados
+   (HIP HOP, TECHNO, DnB, BREAK, HOUSE, TRAP); el autoload de bancos estaba
+   apagado a propósito. El parche lo **activa** → al boot carga
+   `19_temas_demo_daisy.json` (con fallback a los inline si el JSON no está).
+2. **Nombres del selector hardcodeados.** La web fijaba el nº de patrones en
+   `PATTERN_NAMES` (6) → `totalPatterns = max(len, 6)` = 6. El parche pone los
+   **19 nombres del demo** en `data/web/app.js`.
+
 ## Instalación (3 pasos)
 
 ```bash
-# 1) S3: aplicar el parche de melodía + presets
+# 1) S3: parche (autoload + nombres web + melodia + presets) y JSON
 cd RedMaster-ESP32S3 && git apply /ruta/s3_presets_melody.patch
+copy /ruta/19_temas_demo_daisy.json data/patterns/
+pio run -t upload          # firmware
+pio run -t uploadfs        # JSON + web nuevo  ← IMPRESCINDIBLE
 
-# 2) P4: aplicar el bump de patrones
+# 2) P4: bump de patrones 16->19
 cd BlueSlaveP4 && git apply /ruta/p4_19_patterns.patch
+pio run -t upload
 
-# 3) Daisy: ya está (DSQ_PATTERNS=19 en este repo). Recompilar y flashear los 3.
+# 3) Daisy: ya en este repo (DSQ_PATTERNS=19). build + flash.
 ```
 
-Luego copia `19_temas_demo_daisy.json` a `data/patterns/` del S3, vuelca LittleFS
-y cárgalo desde la web/UDP igual que `10_temas_referencia_808.json`.
+Al reiniciar el master, el log mostrará `Banco demo '19_temas_demo_daisy.json'
+cargado (19 patrones)` y la web/P4 enseñarán los 19 temas del demo.
+
+### Carga manual (sin recompilar)
+
+Con el JSON ya en LittleFS puedes cargarlo por URL, aunque la web seguirá
+mostrando los 6 nombres viejos si no aplicas el cambio de `app.js`:
+```
+http://<IP-master>/api/patternBanks
+http://<IP-master>/api/patternBank/load?file=19_temas_demo_daisy.json
+```
 
 ## Detalle de los parches del S3
 
-`s3_presets_melody.patch` toca 4 ficheros (85 líneas, solo añadidos):
+`s3_presets_melody.patch` toca 5 ficheros (≈98 líneas):
 
 - **`Sequencer.h`**: `PatternData` gana `trackEngine[][]` y `trackPreset[][]`; 4 setters/getters.
 - **`Sequencer.cpp`**: init a `-1`/`0` en constructor y `clearPattern`; implementación de los métodos.
 - **`WebInterface.cpp`**: `loadPatternBankFromFs` hace una 2ª pasada que lee
   `engine`/`preset`/`notes`/`flags` por track (tras `setPatternBulk`, que limpia notas).
-- **`main.cpp`**: al final de `dsqUploadPattern` reaplica engine + preset de cada track.
+- **`main.cpp`**: **autoload del banco al boot** + al activar patrón reaplica engine + preset.
+- **`data/web/app.js`**: `PATTERN_NAMES` con los 19 nombres del demo.
 
 ## ⚠️ Notas de integración (verificar en hardware)
 

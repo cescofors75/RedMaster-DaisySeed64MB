@@ -1,8 +1,11 @@
-# 19 Temas Demo Daisy → Patrones con ritmo + melodía + presets
+# The Bells (Jeff Mills) → 19 escenas para tocar en el master
 
-Banco de **19 patrones** extraído del *demo* de arranque de la Daisy
-(`DaisySeed/main.cpp` → `RunStartup808SelfTest`, fase `PH_SYNTH_JAM`) y puesto
-a funcionar end-to-end en los tres equipos: **Daisy** (audio), **ESP32-S3**
+Banco de **19 patrones-escena** extraído de `DaisySeed/demo_bells.cpp` (el demo
+autónomo "The Bells" de Jeff Mills) y llevado al secuenciador del master para
+**interpretarlo en directo**: cambiando de patrón recorres build-up, grooves,
+breakdowns y solos (el "truco Mills" de mutear/desmutear bucles).
+
+Funciona end-to-end en los tres equipos: **Daisy** (audio), **ESP32-S3**
 (master) y **ESP32-P4** (panel táctil).
 
 ```
@@ -28,37 +31,41 @@ P4 7" (UI) ──UDP──► ESP32-S3 (master, secuenciador) ──SPI──►
 | **S3** | ✅ | ✅ loader lee `notes`/`flags` | ✅ preset **por patrón** | `s3_presets_melody.patch` |
 | **P4** | ✅ | ✅ | ✅ | `p4_19_patterns.patch` |
 
-## Los 19 patrones — UNA SECCIÓN DEL DEMO POR PATRÓN
+## Las 19 escenas (132 BPM, 16 pasos)
 
-Siguen el orden de fases del self-test de la Daisy. **Melodía 303 solo donde el
-demo la tenía** (sección 303 y jams); las secciones de batería van sin bajo.
+Cada escena = qué elementos suenan. Tocas el track avanzando de escena.
 
-| slot | nombre | sección del demo | engine(s) | melodía |
-|---|---|---|---|---|
-| 0 | SAMPLERS | pads de sample (scan) | sampler | — |
-| 1 | 808 SCAN | 16 instrumentos 808 | 808 | — |
-| 2 | 909 SCAN | 11 instrumentos 909 | 909 | — |
-| 3 | 505 SCAN | 11 instrumentos 505 | 505 | — |
-| 4 | 303 ESCALA | escala `notes303` | 303 | ✅ |
-| 5 | XTRA | pads xtra (aprox.)¹ | sampler | — |
-| 6 | SAMPLER FX | groove de samples² | sampler | — |
-| 7 | TECHNO | jam techno | 808/909/505/303 | ✅ |
-| 8 | ELECTRO | jam electro | 909/505/303 | ✅ |
-| 9 | AMBIENT | jam ambient | 808/909/505/303 | ✅ |
-| 10–12 | 808/909/505 BEAT | groove de cada caja | 808 / 909 / 505 | — |
-| 13–14 | ACID LINE A/B | líneas de bajo 303 | 303 | ✅ |
-| 15–17 | TECHNO/ELECTRO/AMBIENT DRUMS | jams sin bajo | drums | — |
-| 18 | FULL JAM | techno completo | 808/909/505/303 | ✅ |
+| # | escena | elementos | melodía |
+|---|---|---|---|
+| 0 | KICK | kick | — |
+| 1 | + RIDE | kick, ride | — |
+| 2 | + OPEN HAT | kick, ride, open-hat | — |
+| 3 | + BELL HI | + campanas (voz alta) | ✅ |
+| 4 | + CLAP+BELL LO | + clap + campana baja | ✅ |
+| 5 | FULL | todo + bajo 303 | ✅ |
+| 6–8 | GROOVE A/B/C | full, con bell-lo mute/unmute (truco Mills) | ✅ |
+| 9 | BREAKDOWN | kick + campanas + bajo | ✅ |
+| 10 | REBUILD | kick, ride, OH, campana hi, bajo | ✅ |
+| 11 | PEAK | todo | ✅ |
+| 12 | BELLS+BASS | campanas + bajo (sin batería) | ✅ |
+| 13 | KICK+BASS | kick + bajo | ✅ |
+| 14 | BELLS SOLO | solo campanas | ✅ |
+| 15 | DRUMS SOLO | kick, ride, OH, clap | — |
+| 16 | BASS SOLO | solo 303 | ✅ |
+| 17 | RIDE+BELLS | ride + campanas | ✅ |
+| 18 | CLIMAX | todo, máxima energía | ✅ |
 
-`songChain` recorre las secciones: scans → 303 → jams.
+**Motores (engine por patrón):**
+- **909** (engine 1, preset Industrial) → KICK 4×4, OPEN HAT offbeats, RIDE corcheas, CLAP backbeat.
+- **FM2Op** (engine 6, preset Bell) → BELLS, motif La menor en **2 voces** (hi+lo
+  suenan juntas en pasos 0 y 11) vía `noteVoices`.
+- **303** (engine 3, preset Acid) → BASS A1 en semicorcheas, acento por tiempo, slides.
 
-> ¹ Los pads **xtra (16-23) no caben** en la rejilla de 16 tracks del secuenciador,
-> así que se aproximan con un groove de samplers.
-> ² La **automatización de FX** del demo no se guarda en el banco (el loader no
-> lee param-locks); el patrón deja el groove rítmico.
+`songChain` interpreta el tema entero: build-up → grooves → breakdown → climax.
 
-**Engine por patrón:** cada patrón fija el motor de cada track (un mismo track es
-808 en `808 SCAN` y 909 en `909 SCAN`); el S3 lo reasigna al cambiar de patrón.
+> **Polifonía de campanas:** se usa el campo `noteVoices` (2 voces/paso). El
+> loader del S3 lo lee (parche). Verifica en hardware que el motor FM2Op suena
+> polifónico; si fuera monofónico, en los pasos 0/11 sonaría solo una campana.
 
 ## Esquema JSON (extendido)
 

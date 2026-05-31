@@ -1,5 +1,5 @@
 diff --git a/RedMaster_ESP32S3/data/web/app.js b/RedMaster_ESP32S3/data/web/app.js
-index 452d4f4..72fa876 100644
+index 452d4f4..7a7d269 100644
 --- a/RedMaster_ESP32S3/data/web/app.js
 +++ b/RedMaster_ESP32S3/data/web/app.js
 @@ -18,7 +18,7 @@ let lastSynthSwitchMs = new Array(16).fill(0);
@@ -7,7 +7,7 @@ index 452d4f4..72fa876 100644
  let currentPatternIndex = 0; // Track current pattern for keyboard nav
  
 -const PATTERN_NAMES = ['HIP HOP', 'TECHNO', 'DnB', 'BREAK', 'HOUSE', 'TRAP'];
-+const PATTERN_NAMES = ['SAMPLERS', '808 SCAN', '909 SCAN', '505 SCAN', '303 ESCALA', 'XTRA', 'SAMPLER FX', 'TECHNO', 'ELECTRO', 'AMBIENT', '808 BEAT', '909 BEAT', '505 BEAT', 'ACID LINE A', 'ACID LINE B', 'TECHNO DRUMS', 'ELECTRO DRUMS', 'AMBIENT DRUMS', 'FULL JAM'];
++const PATTERN_NAMES = ['KICK', '+ RIDE', '+ OPEN HAT', '+ BELL HI', '+ CLAP+BELL LO', 'FULL', 'GROOVE A', 'GROOVE B', 'GROOVE C', 'BREAKDOWN', 'REBUILD', 'PEAK', 'BELLS+BASS', 'KICK+BASS', 'BELLS SOLO', 'DRUMS SOLO', 'BASS SOLO', 'RIDE+BELLS', 'CLIMAX'];
  
  function clearTimerMap(timerMap) {
      Object.keys(timerMap).forEach((key) => {
@@ -92,10 +92,10 @@ index 769c9d3..aef0694 100644
    void setPatternBulk(int pattern, const bool stepsData[MAX_TRACKS][STEPS_PER_PATTERN], const uint8_t velsData[MAX_TRACKS][STEPS_PER_PATTERN]);
    
 diff --git a/RedMaster_ESP32S3/src/WebInterface.cpp b/RedMaster_ESP32S3/src/WebInterface.cpp
-index 7a4618a..ca5c4a4 100644
+index 7a4618a..f196977 100644
 --- a/RedMaster_ESP32S3/src/WebInterface.cpp
 +++ b/RedMaster_ESP32S3/src/WebInterface.cpp
-@@ -633,6 +633,38 @@ static bool loadPatternBankFromFs(const String& requestPath, String* errMsg = nu
+@@ -633,6 +633,52 @@ static bool loadPatternBankFromFs(const String& requestPath, String* errMsg = nu
  
      sequencer.clearPattern(slot);
      sequencer.setPatternBulk(slot, stepsData, velsData);
@@ -128,6 +128,20 @@ index 7a4618a..ca5c4a4 100644
 +        if (!flags.isNull() && step < (int)flags.size()) {
 +          sequencer.setStepFlags(slot, track, step,
 +                                 (uint8_t)((int)flags[step] & 0x03));
++        }
++      }
++      // Polifonia opcional: "noteVoices" = array por paso de arrays de notas
++      // MIDI (hasta MELODY_STEP_VOICES). Sobrescribe voice0 si esta presente.
++      JsonArrayConst noteVoices = trObj["noteVoices"].as<JsonArrayConst>();
++      if (!noteVoices.isNull()) {
++        for (int step = 0; step < stepCount && step < STEPS_PER_PATTERN &&
++                           step < (int)noteVoices.size(); step++) {
++          JsonArrayConst vs = noteVoices[step].as<JsonArrayConst>();
++          if (vs.isNull()) continue;
++          for (int v = 0; v < MELODY_STEP_VOICES && v < (int)vs.size(); v++) {
++            uint8_t n = (uint8_t)constrain((int)vs[v], 0, 127);
++            sequencer.setStepNoteVoice(slot, track, step, v, n);
++          }
 +        }
 +      }
 +    }

@@ -331,6 +331,6 @@ private:
     int   rr_ = 0;
 };
 
-using Poly = PolyT<6>;
+using Poly = PolyT<3>;   /* 3 voces: solapa campanas sin saturar la CPU del firmware */
 
 } /* namespace FM2Op */

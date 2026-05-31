@@ -763,7 +763,7 @@ static float trackGain[MAX_PADS];
 /* ═══════════════════════════════════════════════════════════════════
  *  8b. DAISY SEQUENCER  (sample-accurate, BPM clock in AudioCallback)
  * ═══════════════════════════════════════════════════════════════════ */
-#define DSQ_PATTERNS   16
+#define DSQ_PATTERNS   19   /* banco demo 19 temas; alineado con S3/P4 */
 #define DSQ_TRACKS    16
 #define DSQ_MAX_STEPS 64
 
@@ -791,7 +791,7 @@ struct DsqStepFull {
     uint8_t  _pad[1];     /* align to 12 bytes */
 };  /* 12 bytes */
 
-/* 16 patterns × 16 tracks × 64 steps × 12B = ~196 KB → SDRAM */
+/* 19 patterns × 16 tracks × 64 steps × 12B = ~233 KB → SDRAM */
 DSY_SDRAM_BSS static DsqStepFull dsqSteps[DSQ_PATTERNS][DSQ_TRACKS][DSQ_MAX_STEPS];
 
 struct DaisySeqState {

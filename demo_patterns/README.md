@@ -1,52 +1,55 @@
-# 19 Temas Demo Daisy → Patrones (S3)
+# 19 Temas Demo Daisy → Patrones con ritmo + melodía + presets
 
 Banco de **19 patrones** extraído del *demo* de arranque de la Daisy
-(`DaisySeed/main.cpp` → `RunStartup808SelfTest`, fase `PH_SYNTH_JAM`) y
-convertido al formato JSON que carga el master **ESP32-S3**.
+(`DaisySeed/main.cpp` → `RunStartup808SelfTest`, fase `PH_SYNTH_JAM`) y puesto
+a funcionar end-to-end en los tres equipos: **Daisy** (audio), **ESP32-S3**
+(master) y **ESP32-P4** (panel táctil).
 
-- **Generador:** `generate_demo_patterns.py` (reproducible)
-- **Salida:** `19_temas_demo_daisy.json`
-
-```bash
-cd demo_patterns
-python3 generate_demo_patterns.py
+```
+P4 7" (UI) ──UDP──► ESP32-S3 (master, secuenciador) ──SPI──► Daisy (audio)
+                          ▲ WebSocket (web propia)
 ```
 
-## Qué contiene
+## Contenido de la carpeta
 
-Las 3 líneas de bajo **303** del demo son melodías paso a paso y se vuelcan
-íntegras a los campos de nota. Los hits de batería siguen exactamente las
-reglas del firmware (`st%4==0`, etc.).
+| Fichero | Qué es | Dónde se aplica |
+|---|---|---|
+| `19_temas_demo_daisy.json` | Banco de 19 patrones (ritmo + melodía 303 + preset por track) | `data/patterns/` del **S3** |
+| `generate_demo_patterns.py` | Generador reproducible del JSON | — |
+| `s3_presets_melody.patch` | Lee melodía/engine/preset y los aplica al cambiar de patrón | repo **RedMaster-ESP32S3** |
+| `p4_19_patterns.patch` | Sube el tope de patrones 16→19 | repo **BlueSlaveP4** |
+| (Daisy) `DSQ_PATTERNS 16→19` | Ya commiteado en este repo | **este repo** |
+
+## Qué hace cada capa (estado tras los parches)
+
+| | Ritmos | Melodías | Presets | Cambio |
+|---|---|---|---|---|
+| **Daisy** | ✅ | ✅ `0xC7` | ✅ `0xC6` | `DSQ_PATTERNS` 16→19 (este repo) |
+| **S3** | ✅ | ✅ loader lee `notes`/`flags` | ✅ preset **por patrón** | `s3_presets_melody.patch` |
+| **P4** | ✅ | ✅ | ✅ | `p4_19_patterns.patch` |
+
+## Los 19 patrones
 
 | slot | nombre | contenido |
 |---|---|---|
-| 0 | TECHNO FULL | drums + 303 (jamNotes) |
-| 1 | TECHNO BUILD | + open-hat |
-| 2 | TECHNO DRUMS | solo percusión |
-| 3 | TECHNO ACID | kick + 303 |
-| 4 | TECHNO BREAK | hats + clap + 303 |
+| 0–4 | TECHNO FULL/BUILD/DRUMS/ACID/BREAK | drums + 303 (jamNotes) |
 | 5–9 | ELECTRO * | jamNotesElectro |
 | 10–13 | AMBIENT * | jamNotesAmbient |
-| 14 | ACID RUN UP | escala notes303 ascendente |
-| 15 | ACID RUN DOWN | descendente |
-| 16 | ACID OCTAVE | saltos de octava |
-| 17 | TOM FILL | cascada de toms |
-| 18 | SNARE ROLL | redoble crescendo |
+| 14–16 | ACID UP / DOWN / OCTAVE | escala notes303 |
+| 17–18 | TOM FILL / SNARE ROLL | fills |
 
-Más un `songChain` de 9 entradas que encadena un set Techno → Electro → Ambient.
+\+ `songChain` de 9 entradas (Techno → Electro → Ambient).
 
 ## Esquema JSON (extendido)
-
-Igual que `10_temas_referencia_808.json` **más** campos de melodía/engine:
 
 ```jsonc
 {
   "name": "...", "tempo": 124, "stepCount": 16, "selectPattern": 0,
-  "trackEngines": [0,1,2,1,1,0,2,3,0,0,0,-1,-1,-1,-1,-1],  // GLOBAL (ver abajo)
+  "trackEngines": [0,1,2,1,1,0,2,3,0,0,0,-1,-1,-1,-1,-1],  // mapa de referencia
   "patterns": [
     { "slot": 0, "name": "TECHNO FULL", "tracks": [
-        { "track": 0, "engine": 0, "steps": [...16], "velocities": [...16] },
-        { "track": 7, "engine": 3, "steps": [...], "velocities": [...],
+        { "track": 0, "engine": 0, "preset": 2, "steps": [...16], "velocities": [...16] },
+        { "track": 7, "engine": 3, "preset": 0, "steps": [...], "velocities": [...],
           "notes": [36,36,43,0,...],   // MIDI por paso, 0 = silencio
           "flags": [1,0,0,0,...] }     // bit0=accent, bit1=slide
     ]}
@@ -55,80 +58,58 @@ Igual que `10_temas_referencia_808.json` **más** campos de melodía/engine:
 }
 ```
 
-Campos `notes`/`flags`/`engine`/`trackEngines` son **nuevos**; `steps` y
-`velocities` ya existían.
+Campos nuevos respecto a `10_temas_referencia_808.json`:
+`engine`, `preset`, `notes`, `flags` por track.
 
-## ⚠️ Importante: requiere ampliar el loader del S3
+## Presets por patrón
 
-El loader actual **`loadPatternBankFromFs`** (`RedMaster_ESP32S3/src/WebInterface.cpp`)
-solo lee `steps` y `velocities` — **ignora `notes`, `flags` y los engines**. Si
-cargas este JSON tal cual, sonarán las baterías pero **no la melodía 303**.
+Cada track recuerda su **engine** + **preset de fábrica**; el S3 los reaplica al
+activar el patrón (`CMD_SYNTH_PRESET 0xC6` + `dsqSetTrackEngine`). Presets por
+estilo (ver generador): Techno→808 *Techno*/909 *Techno*/303 *Acid*; Electro→909
+*HousePound*/303 *Squelch*; Ambient→909 *Industrial*/303 *Sub Bass*.
 
-### Mapa track → engine es GLOBAL, no por patrón
+> ⚠️ **El engine global se sobreescribe al cambiar de patrón.** `gTrackSynthEngine[]`
+> del S3 es global; el recall por patrón lo actualiza en cada switch. Es el
+> comportamiento deseado para este banco.
 
-En el firmware S3, `gTrackSynthEngine[16]` (`main.cpp:88`) es global. Por eso el
-banco define **un único** `trackEngines` y todos los patrones lo respetan:
+## Instalación (3 pasos)
 
-```
-0 BD(808) · 1 SD(909) · 2 CH(505) · 3 OH(909) · 4 CY(909) · 5 CP(808)
-6 CB(505) · 7 303 acid · 8 LT(808) · 9 MT(808) · 10 HT(808) · 11-15 sampler
-```
+```bash
+# 1) S3: aplicar el parche de melodía + presets
+cd RedMaster-ESP32S3 && git apply /ruta/s3_presets_melody.patch
 
-### Parche del loader (S3)
+# 2) P4: aplicar el bump de patrones
+cd BlueSlaveP4 && git apply /ruta/p4_19_patterns.patch
 
-En `WebInterface.cpp`, función `loadPatternBankFromFs`:
-
-**1) Tras leer `stepCount` (~línea 594), aplicar los engines globales:**
-
-```cpp
-// --- NUEVO: engines globales por track ---
-JsonArrayConst trackEngines = doc["trackEngines"].as<JsonArrayConst>();
-if (!trackEngines.isNull()) {
-  for (int t = 0; t < MAX_TRACKS && t < (int)trackEngines.size(); t++) {
-    setTrackSynthEngine(t, (int8_t)(trackEngines[t] | -1));
-    spiMaster.dsqSetTrackEngine((uint8_t)t, getTrackSynthEngine(t));
-  }
-}
+# 3) Daisy: ya está (DSQ_PATTERNS=19 en este repo). Recompilar y flashear los 3.
 ```
 
-**2) Tras `sequencer.setPatternBulk(slot, stepsData, velsData);` (~línea 635),
-añadir una segunda pasada para notas y flags** (después del bulk porque
-`clearPattern` borra las notas):
+Luego copia `19_temas_demo_daisy.json` a `data/patterns/` del S3, vuelca LittleFS
+y cárgalo desde la web/UDP igual que `10_temas_referencia_808.json`.
 
-```cpp
-// --- NUEVO: melodia por paso (notes) + accent/slide (flags) ---
-for (JsonObjectConst trObj : tracks) {
-  int track = trObj["track"] | -1;
-  if (track < 0 || track >= MAX_TRACKS) continue;
-  JsonArrayConst notes = trObj["notes"].as<JsonArrayConst>();
-  JsonArrayConst flags = trObj["flags"].as<JsonArrayConst>();
-  for (int step = 0; step < stepCount && step < STEPS_PER_PATTERN; step++) {
-    if (!notes.isNull() && step < (int)notes.size()) {
-      uint8_t n = (uint8_t)constrain((int)notes[step], 0, 127);
-      if (n) sequencer.setStepNoteVoice(slot, track, step, 0, n);
-    }
-    if (!flags.isNull() && step < (int)flags.size()) {
-      sequencer.setStepFlags(slot, track, step,
-                             (uint8_t)((int)flags[step] & 0x03));
-    }
-  }
-}
-```
+## Detalle de los parches del S3
 
-> `setStepNoteVoice`, `setStepFlags` y `setTrackSynthEngine` ya existen en el
-> firmware (`Sequencer.cpp` y `main.cpp`). El parche solo los conecta al JSON.
+`s3_presets_melody.patch` toca 4 ficheros (85 líneas, solo añadidos):
 
-## Instalación
+- **`Sequencer.h`**: `PatternData` gana `trackEngine[][]` y `trackPreset[][]`; 4 setters/getters.
+- **`Sequencer.cpp`**: init a `-1`/`0` en constructor y `clearPattern`; implementación de los métodos.
+- **`WebInterface.cpp`**: `loadPatternBankFromFs` hace una 2ª pasada que lee
+  `engine`/`preset`/`notes`/`flags` por track (tras `setPatternBulk`, que limpia notas).
+- **`main.cpp`**: al final de `dsqUploadPattern` reaplica engine + preset de cada track.
 
-1. Aplica el parche del loader en el repo `RedMaster-ESP32S3`.
-2. Copia `19_temas_demo_daisy.json` a `data/patterns/` del S3 y vuelca LittleFS.
-3. Cárgalo desde la web/UDP igual que `10_temas_referencia_808.json`.
+## ⚠️ Notas de integración (verificar en hardware)
 
-> Las melodías se reproducen vía `CMD_SYNTH_NOTE_ON_EX (0xC7)` en tiempo real
-> (el S3 lee `stepNoteVoices` al disparar cada paso); la Daisy no necesita
-> cambios.
+1. **Sin compilar contra el build real.** Los parches se han escrito sobre el
+   HEAD clonado pero no se han compilado/flasheado. Revisa que compilan en tu
+   toolchain antes de subir.
+2. **Doble disparo melódico.** La melodía 303 la dispara el `stepCallback` del S3
+   (`synthNoteOnEx`). Si la Daisy también dispara ese track desde su secuenciador
+   interno, podría sonar doble. Es el **mismo flujo** que el "melodyAssign" del P4
+   ya en producción, así que debería comportarse igual — pero conviene oírlo.
+3. **P4 UI.** El bump deja seleccionar P01–P19; mostrar el preset activo por
+   patrón en pantalla es una mejora opcional aún no incluida.
 
-## Compatibilidad sin tocar el S3
+## Compatibilidad sin parchear el S3
 
-Si **no** aplicas el parche, el JSON sigue cargando: sonarán las baterías
-(`steps`+`velocities`) y los campos de melodía se ignoran sin error.
+El JSON sigue cargando sin el parche: sonarían solo las baterías
+(`steps`+`velocities`); melodía y presets se ignorarían sin error.

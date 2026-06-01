@@ -1782,8 +1782,12 @@ static constexpr bool kAudioSafeMode = false; /* callback de audio real */
 #ifndef RED808_AUDIO_DIAG_MINIMAL
 #define RED808_AUDIO_DIAG_MINIMAL 0
 #endif
-static constexpr bool kBootDiagMinimal = (RED808_BOOT_DIAG_MINIMAL != 0); /* diagnóstico extremo: solo LED, sin audio ni FX */
-static constexpr bool kAudioDiagMinimal = (RED808_AUDIO_DIAG_MINIMAL != 0); /* diagnóstico: solo audio callback + LED */
+#ifndef RED808_BOOT_PROGRESS_DIAG
+#define RED808_BOOT_PROGRESS_DIAG 0
+#endif
+static constexpr bool kBootDiagMinimal    = (RED808_BOOT_DIAG_MINIMAL    != 0); /* diagnóstico extremo: solo LED, sin audio ni FX */
+static constexpr bool kAudioDiagMinimal   = (RED808_AUDIO_DIAG_MINIMAL   != 0); /* diagnóstico: solo audio callback + LED */
+static constexpr bool kBootProgressDiag   = (RED808_BOOT_PROGRESS_DIAG  != 0); /* diagnóstico: parpadeos de progreso en boot para localizar crash */
 static constexpr bool kEnableAudioStart = true; /* iniciar audio normal */
 static constexpr bool kEnableStartLog = true;  /* diagnóstico: ver log boot QSPI/muestras */
 static constexpr bool kEnableSynthCmdLog = true; /* diagnóstico temporal: preset/note routing */
@@ -7994,6 +7998,51 @@ static void InitFX()
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+ *  26b. BOOT DIAGNOSTIC HELPERS
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* Blink LED N veces con 150ms on/off — útil para marcar etapas de boot */
+static void BootBlinkN(int n)
+{
+    for(int i = 0; i < n; i++){
+        hw.SetLed(true);  System::Delay(150);
+        hw.SetLed(false); System::Delay(150);
+    }
+    System::Delay(400);
+}
+
+/* HardFault handler personalizado — patrón SOS (3 corto · 3 largo · 3 corto).
+ * Reemplaza el "2 parpadeos y fijo" del handler por defecto de libdaisy.
+ * Con este handler el usuario verá SOS en lugar del patrón ambiguo.
+ * Usa busy-loop delay (no SysTick) para funcionar incluso con stack corrupto. */
+
+static void FaultDelay(uint32_t ms)
+{
+    /* STM32H750 @ 480MHz ≈ 480000 ciclos/ms (sin cache effects en fault) */
+    volatile uint32_t cycles = ms * 240000u;  /* ~0.5M ciclos/ms conservador */
+    while(cycles--) __asm volatile("nop");
+}
+
+static void FaultSosLoop(void)
+{
+    __disable_irq();
+    while(1)
+    {
+        for(int i = 0; i < 3; i++){ hw.SetLed(true); FaultDelay(120); hw.SetLed(false); FaultDelay(120); }
+        FaultDelay(250);
+        for(int i = 0; i < 3; i++){ hw.SetLed(true); FaultDelay(450); hw.SetLed(false); FaultDelay(150); }
+        FaultDelay(250);
+        for(int i = 0; i < 3; i++){ hw.SetLed(true); FaultDelay(120); hw.SetLed(false); FaultDelay(120); }
+        FaultDelay(1500);
+    }
+}
+
+extern "C" void HardFault_Handler(void)   { FaultSosLoop(); }
+extern "C" void MemManage_Handler(void)    { FaultSosLoop(); }
+extern "C" void BusFault_Handler(void)     { FaultSosLoop(); }
+extern "C" void UsageFault_Handler(void)   { FaultSosLoop(); }
+
+/* ═══════════════════════════════════════════════════════════════════
  *  27. MAIN
  * ═══════════════════════════════════════════════════════════════════ */
 int main()
@@ -8009,6 +8058,14 @@ int main()
     /* ── Hardware init ── */
     hw.Init();
     DspProfInit();
+
+    /* ── Boot progress markers — solo activos con RED808_BOOT_PROGRESS_DIAG=1 ──
+     * Compila con: make RED808_BOOT_PROGRESS_DIAG=1
+     * Si el LED muestra SOS → HardFault antes del primer parpadeo.
+     * Cuenta de parpadeos al crash: 1=hw.Init OK, 2=InitArrays OK,
+     * 3=InitFX OK (SDRAM OK), 4=QSPI/SD OK, 5=Audio+SPI OK → main loop. */
+#define BOOT_BLINK(n) do { if(kBootProgressDiag) BootBlinkN(n); } while(0)
+    BOOT_BLINK(1);  /* hw.Init + DspProfInit completados */
 
     if(kBootDiagMinimal)
     {
@@ -8056,8 +8113,10 @@ int main()
 
     /* ── Init state ── */
     InitArrays();
+    BOOT_BLINK(2);  /* InitArrays completado */
     if(kEnableInitFx)
         InitFX();
+    BOOT_BLINK(3);  /* InitFX completado (SDRAM OK) */
 
     /* ── Cargar WAVs desde QSPI Flash (blob en 0x900C0000) → SDRAM ── */
     if(kStartupStressReport)
@@ -8204,6 +8263,7 @@ int main()
     }
 
     Log("Samples cargados: %d / %d", loadedCount, MAX_PADS);
+    BOOT_BLINK(4);  /* QSPI/SD load completado */
 
     if(kEnableSpiSlave)
     {
@@ -8268,6 +8328,8 @@ int main()
     {
         Log("Audio: DESHABILITADO (diagnostico StartAudio)");
     }
+    BOOT_BLINK(5);  /* Audio started + SPI init OK */
+#undef BOOT_BLINK
 
     /* LED apagado por defecto; se enciende por actividad de transporte */
     hw.SetLed(false);

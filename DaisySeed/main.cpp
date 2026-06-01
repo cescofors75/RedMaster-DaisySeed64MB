@@ -763,7 +763,7 @@ static float trackGain[MAX_PADS];
 /* ═══════════════════════════════════════════════════════════════════
  *  8b. DAISY SEQUENCER  (sample-accurate, BPM clock in AudioCallback)
  * ═══════════════════════════════════════════════════════════════════ */
-#define DSQ_PATTERNS   19   /* banco demo 19 temas; alineado con S3/P4 */
+#define DSQ_PATTERNS   16
 #define DSQ_TRACKS    16
 #define DSQ_MAX_STEPS 64
 
@@ -791,7 +791,7 @@ struct DsqStepFull {
     uint8_t  _pad[1];     /* align to 12 bytes */
 };  /* 12 bytes */
 
-/* 19 patterns × 16 tracks × 64 steps × 12B = ~233 KB → SDRAM */
+/* 16 patterns × 16 tracks × 64 steps × 12B = ~196 KB → SDRAM */
 DSY_SDRAM_BSS static DsqStepFull dsqSteps[DSQ_PATTERNS][DSQ_TRACKS][DSQ_MAX_STEPS];
 
 struct DaisySeqState {
@@ -1619,7 +1619,7 @@ static TR505::Kit synth505;
 static TB303::Synth acid303;
 static WavetableOsc wtOsc;
 static SH101::Synth synthSH101;  /* I1: Roland SH-101 */
-static FM2Op::Poly synthFM2Op;   /* I2: FM 2-op Yamaha (6 voces polifónicas) */
+static FM2Op::Synth synthFM2Op;  /* I2: FM 2-op Yamaha */
 
 /* Physical Modeling engine — DaisySP ModalVoice + StringVoice */
 static ModalVoice  physModal;
@@ -2954,11 +2954,11 @@ static void ApplyFm2OpPreset(uint8_t presetId)
             set(8, 2.00f);  set(9, 2.80f); set(10, 0.04f); set(11, 1.0f);
             set(12, 6.0f);  set(13, 0.85f); set(14, 0.88f);
             break;
-        case 2: /* Bell — ring-mod metálica (The Bells / Mills) */
-            set(0, 0.001f); set(1, 2.60f); set(2, 0.00f); set(3, 1.40f);
-            set(4, 0.001f); set(5, 2.20f); set(6, 0.20f); set(7, 1.00f);
-            set(8, 1.41f);  set(9, 1.00f); set(10, 0.0f); set(11, 2.0f);
-            set(12, 4.0f);  set(13, 0.40f); set(14, 0.55f);
+        case 2: /* Bell */
+            set(0, 0.001f); set(1, 2.20f); set(2, 0.00f); set(3, 1.40f);
+            set(4, 0.001f); set(5, 1.10f); set(6, 0.00f); set(7, 0.80f);
+            set(8, 3.00f);  set(9, 7.20f); set(10, 0.10f); set(11, 0.0f);
+            set(12, 14.0f); set(13, 0.90f); set(14, 0.84f);
             break;
         case 3: /* Growl Lead */
             set(0, 0.004f); set(1, 0.44f); set(2, 0.28f); set(3, 0.22f);
@@ -3175,11 +3175,6 @@ static void ApplySynthPreset(uint8_t engine, uint8_t presetId)
                     set(TR909::INST_HI_PERC, 0, 0.050f); set(TR909::INST_HI_PERC, 1, 1120.0f); set(TR909::INST_HI_PERC, 2, 0.60f); set(TR909::INST_HI_PERC, 3, 0.84f);
                     set(TR909::INST_MID_PERC, 0, 0.080f); set(TR909::INST_MID_PERC, 1, 690.0f); set(TR909::INST_MID_PERC, 2, 0.44f); set(TR909::INST_MID_PERC, 3, 0.86f);
                     set(TR909::INST_LOW_PERC, 0, 0.110f); set(TR909::INST_LOW_PERC, 1, 410.0f); set(TR909::INST_LOW_PERC, 2, 0.32f); set(TR909::INST_LOW_PERC, 3, 0.88f);
-                    /* The Bells / Mills: kick distorsionado al máximo + open-hat que se derrama */
-                    synth909.kick.SetDrive(1.0f);
-                    synth909.kick.SetDecay(0.55f);
-                    synth909.kick.SetCompression(1.0f);
-                    synth909.hihatO.SetDecay(1.6f);
                     break;
                 case 4: /* Pure 909 — fiel al hardware original (kick beater click claro, sin saturacion) */
                     synth909.LoadPreset(TR909::Presets::Pure909);
@@ -3368,23 +3363,6 @@ static void ApplySynthPreset(uint8_t engine, uint8_t presetId)
                     acid303.SetOverdrive(0.08f);
                     acid303.SetSubLevel(0.18f);
                     acid303.SetDrift(0.12f);
-                    acid303.SetPitchBend(0.0f);
-                    break;
-                case 4: /* The Bells bass — chuffy saw (Mills) */
-                    acid303.SetCutoff(420.0f);
-                    acid303.SetResonance(0.82f);
-                    acid303.SetEnvMod(0.80f);
-                    acid303.SetDecay(0.12f);
-                    acid303.SetAccent(0.85f);
-                    acid303.SetSlide(0.08f);
-                    acid303.SetWaveform(TB303::WAVE_SAW);
-                    acid303.SetVolume(0.80f);
-                    acid303.SetAttack(0.001f);
-                    acid303.SetSustain(0.00f);
-                    acid303.SetRelease(0.12f);
-                    acid303.SetOverdrive(0.50f);
-                    acid303.SetSubLevel(0.10f);
-                    acid303.SetDrift(0.03f);
                     acid303.SetPitchBend(0.0f);
                     break;
             }

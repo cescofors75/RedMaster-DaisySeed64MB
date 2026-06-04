@@ -5,7 +5,10 @@ param(
     [switch]$Clean,
     [switch]$VerboseBuild,
     [switch]$StressReport,
-    [int]$StressSeconds = 18
+    [int]$StressSeconds = 18,
+    [switch]$SelfTest,
+    [ValidateSet('rave','ninja')]
+    [string]$Demo = 'rave'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,8 +85,12 @@ try {
         if($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 
-    if($StressReport -and -not $Clean) {
-        Write-Host "StressReport: limpiando objetos para aplicar macros de diagnostico..." -ForegroundColor Yellow
+    # La demo de arranque se activa con SELF_TEST=1; elegir 'ninja' lo implica.
+    $demoNinja = ($Demo -eq 'ninja')
+    $enableSelfTest = $SelfTest -or $demoNinja
+
+    if(($StressReport -or $enableSelfTest) -and -not $Clean) {
+        Write-Host "Limpiando objetos para aplicar macros de compilacion (demo/diagnostico)..." -ForegroundColor Yellow
         & $makeCmd.Source clean
         if($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
@@ -93,6 +100,11 @@ try {
     if($StressReport) {
         $makeArgs += 'RED808_STARTUP_STRESS_REPORT=1'
         $makeArgs += "RED808_STARTUP_STRESS_SECONDS=$StressSeconds"
+    }
+    if($enableSelfTest) {
+        $makeArgs += 'RED808_STARTUP_808_SELF_TEST=1'
+        $makeArgs += ('RED808_DEMO_SET={0}' -f ($(if($demoNinja) { 1 } else { 0 })))
+        Write-Host ("Demo de arranque: {0}" -f $Demo.ToUpper()) -ForegroundColor Green
     }
     & $makeCmd.Source @makeArgs
     exit $LASTEXITCODE

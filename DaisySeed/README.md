@@ -114,6 +114,26 @@ cd DaisySP && make -j4 && cd ..
 make -j4
 ```
 
+## Demos standalone de arranque
+
+El firmware incluye **demos auto-reproducibles** que suenan al bootear **cuando NO hay
+master ESP32 conectado** (se autodestruyen en cuanto llega el primer paquete SPI). Se
+activan con `RED808_STARTUP_808_SELF_TEST=1` y se elige la personalidad con `RED808_DEMO_SET`:
+
+| Demo | Build | Contenido |
+|------|-------|-----------|
+| **RAVE** (por defecto) | `make RED808_STARTUP_808_SELF_TEST=1` | Scan de samplers + 808/909/505/303 + XTRA, FX jam y synth jam encadenando *Techno / Electro / Ambient*. |
+| **NINJA TUNE** | `make RED808_STARTUP_808_SELF_TEST=1 RED808_DEMO_SET=1` | Downtempo / hiphop-jazz: boom-bap con swing (~86 BPM), acordes Rhodes (wtOsc poli), walking bass (FM2op), crackle de vinilo (Particle) y tape-stop. Secciones: *Ninja Tune → Rhodes → Jazz Hop → Dub → Outro*. |
+
+> Cada demo locuta el nombre de su sección con el oscilador de formantes retro-robótico.
+
+En Windows, vía `build_daisy.ps1`:
+
+```powershell
+.\build_daisy.ps1 -SelfTest            # demo RAVE
+.\build_daisy.ps1 -Demo ninja          # demo NINJA TUNE (implica -SelfTest)
+```
+
 ## Flash
 
 ### DFU (USB)

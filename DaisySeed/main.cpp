@@ -1803,8 +1803,16 @@ static constexpr bool kEnableInitFx = (RED808_ENABLE_INIT_FX != 0);    /* diagn�
 #ifndef RED808_STARTUP_STRESS_SECONDS
 #define RED808_STARTUP_STRESS_SECONDS 18
 #endif
+/* Selector de personalidad de la demo de arranque (requiere
+ * RED808_STARTUP_808_SELF_TEST=1):
+ *   0 = RAVE  (samplers + 808/909/505/303 + techno/electro/ambient)
+ *   1 = NINJA (downtempo / hiphop-jazz: boom-bap + Rhodes + walking bass) */
+#ifndef RED808_DEMO_SET
+#define RED808_DEMO_SET 0
+#endif
 static constexpr bool kStartupToneTest = (RED808_STARTUP_TONE_TEST != 0); /* diagnóstico: tono directo 1kHz */
 static constexpr bool kStartup808SelfTest = (RED808_STARTUP_808_SELF_TEST != 0); /* diagnóstico: prueba sampler/synth */
+static constexpr bool kDemoNinja = (RED808_DEMO_SET == 1); /* true → demo Ninja Tune en lugar de la rave */
 static constexpr bool kStartupStressReport = (RED808_STARTUP_STRESS_REPORT != 0);
 static constexpr uint32_t kStartupStressSeconds = RED808_STARTUP_STRESS_SECONDS;
 static constexpr bool kBypassIncomingCrc = false; /* producción: validar CRC de comandos entrantes */
@@ -1848,6 +1856,12 @@ enum StartupSectionTag : uint8_t {
     SEC_TECHNO,
     SEC_ELECTRO,
     SEC_AMBIENT,
+    /* ── Demo Ninja Tune (downtempo / hiphop-jazz) ── */
+    SEC_NINJA,
+    SEC_RHODES,
+    SEC_JAZZHOP,
+    SEC_DUB,
+    SEC_OUTRO,
     SEC_COUNT
 };
 
@@ -1859,16 +1873,20 @@ static uint32_t         startupAnnounceRemain = 0;
 static void QueueStartupSectionTag(StartupSectionTag sec)
 {
     static const char* kWords[SEC_COUNT] = {
-        "SAMPLERS", "808", "909", "505", "303", "XTRAS", "FX JAM", "TECHNO", "ELECTRO", "AMBIENT"
+        "SAMPLERS", "808", "909", "505", "303", "XTRAS", "FX JAM", "TECHNO", "ELECTRO", "AMBIENT",
+        "NINJA TUNE", "RHODES", "JAZZ HOP", "DUB", "OUTRO"
     };
     static const float kCarrier[SEC_COUNT] = {
-        86.0f, 92.0f, 98.0f, 104.0f, 110.0f, 116.0f, 94.0f, 88.0f, 96.0f, 80.0f
+        86.0f, 92.0f, 98.0f, 104.0f, 110.0f, 116.0f, 94.0f, 88.0f, 96.0f, 80.0f,
+        84.0f, 100.0f, 90.0f, 74.0f, 70.0f
     };
     static const float kFormant[SEC_COUNT] = {
-        820.0f, 940.0f, 980.0f, 910.0f, 860.0f, 760.0f, 1030.0f, 700.0f, 1080.0f, 640.0f
+        820.0f, 940.0f, 980.0f, 910.0f, 860.0f, 760.0f, 1030.0f, 700.0f, 1080.0f, 640.0f,
+        880.0f, 1000.0f, 960.0f, 600.0f, 560.0f
     };
     static const float kPhaseShift[SEC_COUNT] = {
-        0.28f, 0.32f, 0.38f, 0.45f, 0.52f, 0.62f, 0.34f, 0.58f, 0.42f, 0.66f
+        0.28f, 0.32f, 0.38f, 0.45f, 0.52f, 0.62f, 0.34f, 0.58f, 0.42f, 0.66f,
+        0.30f, 0.40f, 0.36f, 0.60f, 0.68f
     };
 
     uint8_t idx = (uint8_t)sec;
@@ -2506,6 +2524,337 @@ static void RunStartup808SelfTest(uint32_t nowMs)
             trkEnvAttackMs[i]  = 1.0f;
             trkEnvDecayMs[i]   = 250.0f;
         }
+
+        phase = PH_DONE;
+        return;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ *  Startup demo alternativa — "NINJA TUNE"  (downtempo / hiphop-jazz)
+ *  Selección en compilación:  RED808_DEMO_SET=1  (con SELF_TEST=1)
+ *
+ *  Boom-bap con swing @ ~86 BPM + acordes Rhodes (wtOsc polifónico) +
+ *  walking bass (FM2op) + crackle de vinilo (Particle) + tape FX.
+ *  Igual que el self-test: se autodestruye al primer paquete SPI.
+ * ═══════════════════════════════════════════════════════════════════ */
+static void RunStartupNinjaDemo(uint32_t nowMs)
+{
+    if(!kStartup808SelfTest)
+        return;
+
+    enum Phase : uint8_t {
+        PH_IDLE = 0,
+        PH_INTRO,
+        PH_RHODES,
+        PH_GROOVE,    /* groove + dub vía njSection */
+        PH_OUTRO,
+        PH_CLEANUP,
+        PH_DONE
+    };
+    static Phase    phase      = PH_IDLE;
+    static uint32_t nextMs     = 0;
+    static uint8_t  njStep     = 0;
+    static uint8_t  njBar      = 0;
+    static uint8_t  njSection  = 0;   /* 0=groove 1=dub */
+    static uint8_t  introStep  = 0;
+    static uint8_t  rhodesStep = 0;
+
+    /* ── Tempo / swing ── */
+    const float bpm      = 86.0f;
+    const float base16ms = 60000.0f / (bpm * 4.0f);   /* ≈174 ms por semicorchea */
+    const float swing    = 0.60f;                     /* contratiempo "vago"      */
+
+    /* I–vi–ii–V en Do mayor (turnaround jazz) — 4 acordes de 4 notas */
+    static const uint8_t njChords[4][4] = {
+        { 48, 52, 55, 59 },  /* Cmaj7  C E G B */
+        { 45, 48, 52, 55 },  /* Am7    A C E G */
+        { 50, 53, 57, 60 },  /* Dm7    D F A C */
+        { 43, 47, 53, 57 },  /* G7     G B F A */
+    };
+    /* Walking bass — 4 compases × 4 negras, resuelve V→I al loopear */
+    static const uint8_t njWalk[16] = {
+        36, 38, 40, 43,   /* Cmaj7: C D E G */
+        45, 43, 40, 36,   /* Am7:   A G E C */
+        38, 41, 45, 48,   /* Dm7:   D F A C */
+        47, 50, 41, 43,   /* G7:    B D F G */
+    };
+
+    static const uint8_t kNjGrooveBars = 4;
+    static const uint8_t kNjDubBars    = 4;
+
+    /* ── Aborta si llega tráfico SPI (el master tomó control) ── */
+    if(spiPktCnt > 0 && phase != PH_DONE)
+    {
+        wtOsc.AllNotesOff();
+        synthFM2Op.NoteOff();
+        acid303.NoteOff();
+        noisePartActive = false;
+        tapeStopActive  = false;
+        tapeStopSpeed   = 1.0f;
+        phase = PH_DONE;
+        return;
+    }
+
+    if(phase == PH_IDLE)
+    {
+        phase      = PH_INTRO;
+        nextMs     = nowMs + 250;
+        njStep     = 0;
+        njBar      = 0;
+        njSection  = 0;
+        introStep  = 0;
+        rhodesStep = 0;
+
+        /* Voz Rhodes en wtOsc: morph soft-sine↔organ, pluck suave */
+        wtOsc.SetWavePos(5.4f);
+        wtOsc.SetAttack(10.0f);
+        wtOsc.SetDecay(820.0f);
+        wtOsc.SetFilter(3200.0f, 0.7f);
+        wtOsc.volume = 0.55f;
+
+        /* Bajo eléctrico FM (ratio 1, índice medio) */
+        synthFM2Op.params.ratio    = 1.0f;
+        synthFM2Op.params.index    = 2.6f;
+        synthFM2Op.params.feedback = 0.10f;
+        synthFM2Op.params.cAtk     = 0.005f;
+        synthFM2Op.params.cDec     = 0.45f;
+        synthFM2Op.params.cSus     = 0.35f;
+        synthFM2Op.params.cRel     = 0.18f;
+        synthFM2Op.params.mDec     = 0.22f;
+        synthFM2Op.params.volume   = 0.90f;
+
+        /* Crackle de vinilo (Particle disperso) */
+        noisePart.SetFreq(2200.0f);
+        noisePart.SetDensity(0.07f);
+        noisePartGain   = 0.10f;
+        noisePartActive = true;
+
+        /* Lo-fi master: lowpass + reverb amplia + chorus suave + delay ping-pong */
+        gFilterType   = FTYPE_LOWPASS;
+        gFilterQ      = 0.7f;
+        gFilterCutoff = 600.0f;
+        gFilterL.SetType(FTYPE_LOWPASS, gFilterCutoff, gFilterQ, (float)SAMPLE_RATE);
+        gFilterR.SetType(FTYPE_LOWPASS, gFilterCutoff, gFilterQ, (float)SAMPLE_RATE);
+
+        delayActive   = true;
+        delayPingPong = true;
+        delayMix      = 0.18f;
+        delayFeedback = 0.42f;
+        masterDelay.SetDelay(0.34f * (float)SAMPLE_RATE);
+        masterDelayR.SetDelay(0.34f * (float)SAMPLE_RATE);
+
+        reverbActive  = true;
+        reverbMix     = 0.30f;
+        masterReverb.SetFeedback(0.88f);
+        masterReverb.SetLpFreq(5200.0f);
+
+        chorusActive  = true;
+        chorusMix     = 0.14f;
+        masterChorus.SetLfoFreq(0.25f);
+        masterChorus.SetLfoDepth(0.35f);
+
+        stereoWidth   = 1.25f;
+
+        QueueStartupSectionTag(SEC_NINJA);
+        return;
+    }
+
+    if(nowMs < nextMs)
+        return;
+
+    if(phase == PH_INTRO)
+    {
+        /* Abre el lowpass progresivamente + swell de acorde Cmaj7 */
+        float t = (float)introStep / 7.0f;
+        gFilterCutoff = clampF(600.0f + 8200.0f * t, 200.0f, 12000.0f);
+        gFilterL.SetType(FTYPE_LOWPASS, gFilterCutoff, gFilterQ, (float)SAMPLE_RATE);
+        gFilterR.SetType(FTYPE_LOWPASS, gFilterCutoff, gFilterQ, (float)SAMPLE_RATE);
+
+        if(introStep == 0)
+        {
+            wtOsc.AllNotesOff();
+            for(int i = 0; i < 4; i++) wtOsc.NoteOn(njChords[0][i], 0.40f);
+        }
+
+        introStep++;
+        nextMs = nowMs + 220;
+        if(introStep >= 8)
+        {
+            phase      = PH_RHODES;
+            rhodesStep = 0;
+            nextMs     = nowMs + 320;
+            QueueStartupSectionTag(SEC_RHODES);
+        }
+        return;
+    }
+
+    if(phase == PH_RHODES)
+    {
+        /* Arpegia los 4 acordes para lucir la voz Rhodes polifónica */
+        const uint8_t* ch = njChords[(rhodesStep >> 2) & 3u];
+        wtOsc.NoteOn(ch[rhodesStep & 3u], 0.50f);
+
+        rhodesStep++;
+        nextMs = nowMs + (uint32_t)(base16ms * 1.5f);
+        if(rhodesStep >= 16)
+        {
+            wtOsc.AllNotesOff();
+            phase     = PH_GROOVE;
+            njSection = 0;
+            njStep    = 0;
+            njBar     = 0;
+            nextMs    = nowMs + 360;
+            QueueStartupSectionTag(SEC_JAZZHOP);
+        }
+        return;
+    }
+
+    if(phase == PH_GROOVE)
+    {
+        const bool isDub = (njSection == 1);
+        uint8_t st = njStep & 15u;
+
+        /* ── FX por sección ── */
+        if(!isDub)
+        {
+            gFilterCutoff = clampF(7200.0f + 1400.0f * sinf(0.12f * (float)njStep), 800.0f, 12000.0f);
+            delayMix      = 0.16f;
+            delayFeedback = 0.40f;
+            reverbMix     = 0.22f;
+            chorusMix     = 0.12f;
+            tremoloActive = false;
+        }
+        else
+        {
+            gFilterCutoff = clampF(3600.0f + 900.0f * sinf(0.08f * (float)njStep), 600.0f, 9000.0f);
+            delayMix      = 0.30f;
+            delayFeedback = 0.55f;
+            reverbMix     = 0.36f;
+            chorusMix     = 0.16f;
+            tremoloActive = true;
+            masterTremolo.SetFreq(2.2f);
+            masterTremolo.SetDepth(0.10f);
+        }
+        gFilterL.SetType(FTYPE_LOWPASS, gFilterCutoff, gFilterQ, (float)SAMPLE_RATE);
+        gFilterR.SetType(FTYPE_LOWPASS, gFilterCutoff, gFilterQ, (float)SAMPLE_RATE);
+
+        /* ── DRUMS boom-bap con swing ── */
+        if(!isDub)
+        {
+            /* hats en corcheas, acento en los contratiempos */
+            if((st & 1u) == 0u)
+            {
+                float hv = (st == 4u || st == 12u) ? 0.30f
+                          : (((st % 4u) == 2u) ? 0.44f : 0.34f);
+                synth505.hihatC.Trigger(hv);
+            }
+            if(st == 14u && (njBar & 1u)) synth505.hihatO.Trigger(0.40f);
+
+            if(st == 0u)  synth808.kick.Trigger(0.95f);
+            if(st == 10u) synth808.kick.Trigger(0.80f);
+            if(st == 6u && (njBar & 1u)) synth808.kick.Trigger(0.60f);
+
+            if(st == 4u || st == 12u) synth909.snare.Trigger(0.76f);
+            if(st == 7u && (njBar & 3u) == 3u) synth909.snare.Trigger(0.26f);  /* ghost */
+        }
+        else
+        {
+            /* half-time dub: más aire */
+            if(st == 0u) synth808.kick.Trigger(0.92f);
+            if(st == 8u) synth909.snare.Trigger(0.70f);
+            if((st % 4u) == 2u) synth505.hihatC.Trigger(0.30f);
+            if(st == 12u && (njBar & 1u)) synth909.rimshot.Trigger(0.40f);
+        }
+
+        /* ── WALKING BASS en negras ── */
+        if((st & 3u) == 0u)
+        {
+            uint8_t idx = (uint8_t)(((njBar & 3u) * 4u + (st >> 2)) & 15u);
+            synthFM2Op.NoteOff();
+            synthFM2Op.NoteOn(njWalk[idx], isDub ? 0.95f : 0.88f);
+        }
+
+        /* ── RHODES comping sincopado ── */
+        bool compHit = isDub ? (st == 4u)               /* dub: 1 stab por compás      */
+                             : (st == 2u || st == 11u);  /* groove: 2 stabs sincopados  */
+        if(compHit)
+        {
+            const uint8_t* ch = njChords[njBar & 3u];
+            wtOsc.AllNotesOff();
+            float cv = isDub ? 0.38f : 0.42f;
+            for(int i = 0; i < 4; i++) wtOsc.NoteOn(ch[i], cv);
+        }
+
+        /* ── Avance con swing (downbeat largo, offbeat corto) ── */
+        njStep++;
+        float eighth = 2.0f * base16ms;
+        float dur    = (st & 1u) ? (eighth * (1.0f - swing)) : (eighth * swing);
+        if(isDub) dur *= 2.0f;
+        nextMs = nowMs + (uint32_t)dur;
+
+        if((njStep & 15u) == 0u)
+        {
+            njBar++;
+            uint8_t barsThis = isDub ? kNjDubBars : kNjGrooveBars;
+            if(njBar >= barsThis)
+            {
+                njBar  = 0;
+                njStep = 0;
+                if(!isDub)
+                {
+                    njSection = 1;
+                    nextMs    = nowMs + 360;
+                    QueueStartupSectionTag(SEC_DUB);
+                }
+                else
+                {
+                    phase  = PH_OUTRO;
+                    nextMs = nowMs + 200;
+                    QueueStartupSectionTag(SEC_OUTRO);
+                }
+            }
+        }
+        return;
+    }
+
+    if(phase == PH_OUTRO)
+    {
+        /* Acorde final + walking bass root + tape-stop */
+        wtOsc.AllNotesOff();
+        for(int i = 0; i < 4; i++) wtOsc.NoteOn(njChords[0][i], 0.50f);
+        synthFM2Op.NoteOff();
+        synthFM2Op.NoteOn(njWalk[0], 0.90f);
+        synth808.kick.Trigger(0.90f);
+
+        tapeStopActive = true;   /* rampa de velocidad 1→0 en el AudioCallback */
+
+        phase  = PH_CLEANUP;
+        nextMs = nowMs + 2200;   /* deja que el tape-stop termine */
+        return;
+    }
+
+    if(phase == PH_CLEANUP)
+    {
+        wtOsc.AllNotesOff();
+        synthFM2Op.NoteOff();
+        acid303.NoteOff();
+
+        delayActive     = false;
+        delayPingPong   = false;
+        reverbActive    = false;
+        chorusActive    = false;
+        tremoloActive   = false;
+        noisePartActive = false;
+
+        gFilterType   = FTYPE_NONE;
+        gFilterCutoff = 10000.0f;
+        gFilterL.Reset();
+        gFilterR.Reset();
+
+        tapeStopActive = false;
+        tapeStopSpeed  = 1.0f;
+        stereoWidth    = 1.0f;
 
         phase = PH_DONE;
         return;
@@ -8353,7 +8702,10 @@ int main()
 
         /* ── LED diagnóstico ── */
         uint32_t now = hw.system.GetNow();
-        RunStartup808SelfTest(now);
+        if(kDemoNinja)
+            RunStartupNinjaDemo(now);   /* RED808_DEMO_SET=1 → downtempo/hiphop-jazz */
+        else
+            RunStartup808SelfTest(now); /* RED808_DEMO_SET=0 → rave (por defecto)    */
         RunStartupStressReport(now);
         RunPerformanceStressMode(now);
         RunLiveDspProfileReport(now);

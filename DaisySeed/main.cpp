@@ -750,6 +750,25 @@ struct Voice {
 static Voice   voices[MAX_VOICES];
 static uint32_t voiceAge = 0;
 
+/* ── Sección crítica corta para estado compartido ISR ↔ main loop ──
+ * Usos: mutación de voices[] (TriggerPad/StopPadVoices se llaman tanto
+ * desde el AudioCallback —via DsqFireStep— como desde ProcessCommand y la
+ * carga SD; una voz a medio escribir renderizada por la ISR produce
+ * lecturas fuera de rango del sample) y drenaje del FIFO SPI (TIM6 prio 1
+ * puede preemptar al AudioCallback prio 2 en plena lectura).
+ * PRIMASK save/restore: anidable y seguro desde ambos contextos (~µs).
+ * __disable_irq() es además barrera de compilador (clobber "memory"). */
+static inline uint32_t IrqLockEnter(void)
+{
+    uint32_t pm = __get_PRIMASK();
+    __disable_irq();
+    return pm;
+}
+static inline void IrqLockExit(uint32_t pm)
+{
+    __set_PRIMASK(pm);
+}
+
 /* ═══════════════════════════════════════════════════════════════════
  *  8. VOLÚMENES
  * ═══════════════════════════════════════════════════════════════════ */
@@ -2569,9 +2588,11 @@ static float BitCrush(float s, uint8_t bits){
 
 static void StopPadVoices(uint8_t pad)
 {
+    uint32_t pm = IrqLockEnter();
     for(int voiceIndex = 0; voiceIndex < MAX_VOICES; voiceIndex++)
         if(voices[voiceIndex].active && voices[voiceIndex].pad == pad)
             voices[voiceIndex].active = false;
+    IrqLockExit(pm);
 }
 
 static void ReleaseTrackEngine(uint8_t track, int8_t engine)
@@ -3466,7 +3487,46 @@ static void TriggerPad(uint8_t pad, uint8_t velocity,
 {
     if(pad >= MAX_PADS || !sampleLoaded[pad] || padLoading[pad]) return;
 
-    /* ── Choke group: silence any other pad in the same group ── */
+    /* ── Precalcular TODO lo que no toca voices[] fuera del lock
+     *    (incluye un powf) para que la sección crítica dure ~µs ── */
+    uint32_t len = sampleLength[pad];
+    if(maxSamples > 0 && maxSamples < len) len = maxSamples;
+
+    float gain = (velocity / 127.0f)
+               * VolumeByteToGain(trkVol)
+               * trackGain[pad]
+               * clampF(sourceVolume, 0.0f, 1.5f);
+    float panF = trackPanF[pad] + (pan / 100.0f);
+    panF = clampF(panF, -1.0f, 1.0f);
+    float gL = gain * (1.0f - clampF(panF, 0.f, 1.f));
+    float gR = gain * (1.0f + clampF(panF, -1.f, 0.f));
+
+    float pos   = padReverse[pad] ? (float)(sampleLength[pad] - 1) : 0.0f;
+    float speed = padPitch[pad] * powf(2.0f, trkPitchCents[pad] / 1200.0f);
+
+    float   envInit, envAtkInc, envDecCoef;
+    uint8_t envStage;
+    if(trkEnvAdActive[pad]){
+        float atkMs = clampF(trkEnvAttackMs[pad], 0.0f, 2000.0f);
+        envInit   = (atkMs <= 0.01f) ? 1.0f : 0.0f;
+        envAtkInc = (atkMs <= 0.01f)
+            ? 1.0f
+            : (1.0f / (atkMs * (float)SAMPLE_RATE * 0.001f));
+        envDecCoef = AdDecayCoefFromMs(trkEnvDecayMs[pad]);
+        envStage   = (atkMs <= 0.01f) ? 1 : 0;
+    } else {
+        envInit    = 1.0f;
+        envAtkInc  = 1.0f;
+        envDecCoef = 1.0f;
+        envStage   = 2;
+    }
+
+    /* ── Sección crítica: choke + selección de slot + escritura de la voz.
+     *    Sin esto, la ISR de audio puede renderizar una voz a medio
+     *    escribir cuando el trigger llega desde el main loop. ── */
+    uint32_t pm = IrqLockEnter();
+
+    /* Choke group: silence any other pad in the same group */
     uint8_t grp = chokeGroup[pad];
     if(grp > 0){
         for(int cp = 0; cp < MAX_PADS; cp++){
@@ -3513,45 +3573,23 @@ static void TriggerPad(uint8_t pad, uint8_t velocity,
         voices[slot].stealFade    = 1.0f;
     }
 
-    uint32_t len = sampleLength[pad];
-    if(maxSamples > 0 && maxSamples < len) len = maxSamples;
-
-    /* Guardar límite efectivo en la voz */
-    voices[slot].maxLen = len;
-
-    float gain = (velocity / 127.0f)
-               * VolumeByteToGain(trkVol)
-               * trackGain[pad]
-               * clampF(sourceVolume, 0.0f, 1.5f);
-    float panF = trackPanF[pad] + (pan / 100.0f);
-    panF = clampF(panF, -1.0f, 1.0f);
-    float gL = gain * (1.0f - clampF(panF, 0.f, 1.f));
-    float gR = gain * (1.0f + clampF(panF, -1.f, 0.f));
-
+    voices[slot].maxLen       = len;
     voices[slot].active       = true;
     voices[slot].pad          = pad;
-    voices[slot].pos          = padReverse[pad] ? (float)(sampleLength[pad] - 1) : 0.0f;
-    voices[slot].speed        = padPitch[pad] * powf(2.0f, trkPitchCents[pad] / 1200.0f);
+    voices[slot].pos          = pos;
+    voices[slot].speed        = speed;
     voices[slot].baseGain     = gain;  // gain pre-pan — para LFO vol/pan live update
     voices[slot].gainL        = gL;
     voices[slot].gainR        = gR;
     voices[slot].stealFade    = 1.0f;
     voices[slot].stealPending = false;
-    if(trkEnvAdActive[pad]){
-        float atkMs = clampF(trkEnvAttackMs[pad], 0.0f, 2000.0f);
-        voices[slot].env = (atkMs <= 0.01f) ? 1.0f : 0.0f;
-        voices[slot].envAttackInc = (atkMs <= 0.01f)
-            ? 1.0f
-            : (1.0f / (atkMs * (float)SAMPLE_RATE * 0.001f));
-        voices[slot].envDecayCoef = AdDecayCoefFromMs(trkEnvDecayMs[pad]);
-        voices[slot].envStage = (atkMs <= 0.01f) ? 1 : 0;
-    } else {
-        voices[slot].env = 1.0f;
-        voices[slot].envAttackInc = 1.0f;
-        voices[slot].envDecayCoef = 1.0f;
-        voices[slot].envStage = 2;
-    }
-    voices[slot].age    = voiceAge++;
+    voices[slot].env          = envInit;
+    voices[slot].envAttackInc = envAtkInc;
+    voices[slot].envDecayCoef = envDecCoef;
+    voices[slot].envStage     = envStage;
+    voices[slot].age          = voiceAge++;
+
+    IrqLockExit(pm);
 }
 
 static uint8_t ActiveVoices(){
@@ -3819,6 +3857,7 @@ static void SilenceVoicesInPadRange(uint8_t startPad, uint8_t endPad)
 {
     if(endPad > MAX_PADS)
         endPad = MAX_PADS;
+    uint32_t pm = IrqLockEnter();
     for(int voiceIndex = 0; voiceIndex < MAX_VOICES; voiceIndex++)
     {
         if(!voices[voiceIndex].active)
@@ -3827,6 +3866,7 @@ static void SilenceVoicesInPadRange(uint8_t startPad, uint8_t endPad)
         if(pad >= startPad && pad < endPad)
             voices[voiceIndex].active = false;
     }
+    IrqLockExit(pm);
 }
 
 static void ResetTrackRuntimeState(uint8_t track)
@@ -4083,7 +4123,10 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
          *  samplesElapsed==0 → new step boundary: advance and fire.
          *  Called BEFORE voice rendering so new voices are active this sample. */
         DSP_PROF_SCOPE(SEQ);
-        if(dseq.playing){
+        /* patternLength==0 solo es posible con dseq a medio inicializar
+         * (memset de DsqInit preemptado por esta ISR) — saltar el tick
+         * evita una división por cero en el módulo de currentStep. */
+        if(dseq.playing && dseq.patternLength != 0){
             if(dseq.samplesElapsed == 0){
                 dseq.currentStep = (dseq.currentStep + 1) % (int16_t)dseq.patternLength;
                 DsqFireStep();
@@ -7201,12 +7244,14 @@ static volatile uint16_t spiTxIdx = 0;
 static volatile uint8_t  spiRing[SPI_RING_SIZE];
 static volatile uint16_t spiRingHead = 0;   /* escrito por ISR o AudioCB */
 static volatile uint16_t spiRingTail = 0;   /* escrito SOLO por main     */
-static volatile bool     spiDrainBusy = false; /* anti-reentrada */
 
 static void SpiDrainRxToRing()
 {
-    if(spiDrainBusy) return;        /* reentrada → salir */
-    spiDrainBusy = true;
+    /* TIM6 (prio 1) puede preemptar al AudioCallback (prio 2) en mitad del
+     * drenaje; el antiguo flag anti-reentrada no era atómico (ventana entre
+     * test y set → drenaje concurrente corrompiendo spiRingHead). Sección
+     * crítica real: el FIFO RX es de 16 bytes, dura unos cientos de ciclos. */
+    uint32_t pm = IrqLockEnter();
 
     while(SPI1->SR & SPI_SR_RXP) {
         uint8_t b = *(volatile uint8_t*)&SPI1->RXDR;
@@ -7223,7 +7268,7 @@ static void SpiDrainRxToRing()
         spiErrCnt++;
     }
 
-    spiDrainBusy = false;
+    IrqLockExit(pm);
 }
 
 extern "C" void TIM6_DAC_IRQHandler(void)

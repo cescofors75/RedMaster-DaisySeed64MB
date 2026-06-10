@@ -191,20 +191,19 @@ public:
     void Init(float sr) {
         sr_  = sr;
         memset(stage_, 0, sizeof(stage_));
-        memset(stageIn_, 0, sizeof(stageIn_));
     }
 
     void SetParams(float cutoffHz, float resonance) {
-        cutoff_ = Clamp(cutoffHz, 20.0f, sr_ * 0.47f);
-        res_    = Clamp(resonance, 0.0f, 0.95f);
+        float c = Clamp(cutoffHz, 20.0f, sr_ * 0.47f);
+        float r = Clamp(resonance, 0.0f, 0.95f);
+        /* Se llama por muestra desde Process() del synth: saltar el recálculo
+         * de coeficientes salvo cambio audible (<0.5 Hz es inaudible). */
+        float dc = c - cutoff_;
+        if (dc < 0.5f && dc > -0.5f && r == res_)
+            return;
+        cutoff_ = c;
+        res_    = r;
 
-        /* Coeficiente de 1 polo (pre-warped bilinear) */
-        float w  = SH101_TWOPI * cutoff_ / sr_;
-        float w2 = w * w;
-        float w3 = w2 * w;
-        float w4 = w3 * w;
-        (void)w4;
-        /* Simplified: use 1-pole coef, good enough for musical use */
         float fc_norm = Clamp(cutoff_ / sr_, 0.0f, 0.49f);
         /* Moog formula: g = e^(-2π fc/fs) converted */
         g_   = 1.0f - expf(-SH101_TWOPI * fc_norm);
@@ -233,7 +232,6 @@ private:
     float g_        = 0.1f;
     float resComp_  = 1.0f;
     float stage_[4] = {};
-    float stageIn_[4] = {};
 };
 
 /* ─────────────────────────────────────────────────────────────────
@@ -336,7 +334,7 @@ public:
 
         /* ── Portamento ── */
         if (params.portamento > 0.01f) {
-            float portaTime = powf(params.portamento, 2.0f) * 2.0f + 0.001f;
+            float portaTime = params.portamento * params.portamento * 2.0f + 0.001f;
             float portaK    = expf(-dt_ / portaTime);
             currentFreq_    = targetFreq_ + (currentFreq_ - targetFreq_) * portaK;
         } else {
@@ -369,8 +367,10 @@ public:
         /* ── Frecuencia efectiva con pitch LFO + drift ── */
         float freq = currentFreq_;
         if (params.lfoTarget == 0) {
-            float pitchModSemis = lfoVal * params.lfoDepth * 12.0f;
-            freq *= powf(2.0f, pitchModSemis / 12.0f);
+            /* ±1 octava: 2^x = e^(x·ln2), expf aquí es la versión rápida
+             * (mismo tradeoff de precisión que SemitoneRatio del TB303) —
+             * antes era powf libm por muestra */
+            freq *= expf(0.6931472f * lfoVal * params.lfoDepth);
         }
         freq *= (1.0f + driftMod);
         freq  = Clamp(freq, 10.0f, sr_ * 0.45f);
@@ -397,15 +397,24 @@ public:
                 osc -= PolyBlep(phase_, phaseInc);
                 break;
             case 1: /* SQUARE */
+            {
                 osc = (phase_ < 0.5f) ? 1.0f : -1.0f;
                 osc += PolyBlep(phase_, phaseInc);
-                osc -= PolyBlep(fmodf(phase_ + 0.5f, 1.0f), phaseInc);
+                /* phase_ ∈ [0,1) → el wrap es una resta, no fmodf libm */
+                float ph2 = phase_ + 0.5f;
+                if (ph2 >= 1.0f) ph2 -= 1.0f;
+                osc -= PolyBlep(ph2, phaseInc);
                 break;
+            }
             case 2: /* PULSE con PWM */
+            {
                 osc = (phase_ < pwm) ? 1.0f : -1.0f;
                 osc += PolyBlep(phase_, phaseInc);
-                osc -= PolyBlep(fmodf(phase_ + (1.0f - pwm), 1.0f), phaseInc);
+                float ph2 = phase_ + (1.0f - pwm);
+                if (ph2 >= 1.0f) ph2 -= 1.0f;
+                osc -= PolyBlep(ph2, phaseInc);
                 break;
+            }
             default:
                 osc = 2.0f * phase_ - 1.0f;
                 osc -= PolyBlep(phase_, phaseInc);

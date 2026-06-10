@@ -988,6 +988,11 @@ struct BiquadEQ {
 static DelayLine<float, MAX_DELAY_SAMPLES> DSY_SDRAM_BSS masterDelay;
 DSY_SDRAM_BSS static ReverbSc   masterReverb;
 DSY_SDRAM_BSS static Chorus     masterChorus;
+/* Dedicated right-channel chorus for stereo mode: sharing one instance for
+ * both channels corrupts its internal delay/LFO state (state advances twice
+ * per sample). The R LFO runs slightly faster for stereo decorrelation. */
+DSY_SDRAM_BSS static Chorus     masterChorusR;
+static constexpr float kChorusRDetune = 1.13f;
 static Tremolo    masterTremolo;
 static Compressor masterComp;
 static Fold       masterFold;
@@ -1077,6 +1082,11 @@ static bool  chorusStereoMode = true;  /* default: stereo for wider mix */
 #define ER_TAPS 6
 static DelayLine<float, 4800> DSY_SDRAM_BSS erDelayL;  /* 100ms max */
 static DelayLine<float, 4800> DSY_SDRAM_BSS erDelayR;
+/* Dedicated comb-filter delay lines: FTYPE_COMB and Early Reflections can be
+ * engaged simultaneously, so they must not share storage (each Write() per
+ * sample would advance the other's write pointer and corrupt both). */
+static DelayLine<float, 4800> DSY_SDRAM_BSS combDelayL;
+static DelayLine<float, 4800> DSY_SDRAM_BSS combDelayR;
 static bool  erActive  = false;
 static bool  erRouted  = true;
 static float erMix     = 0.15f;
@@ -2301,6 +2311,8 @@ static void RunStartup808SelfTest(uint32_t nowMs)
         masterReverb.SetLpFreq(7600.0f);
         masterChorus.SetLfoFreq(0.35f);
         masterChorus.SetLfoDepth(0.35f);
+        masterChorusR.SetLfoFreq(0.35f * kChorusRDetune);
+        masterChorusR.SetLfoDepth(0.35f);
 
         int picked = -1;
         for(int k = 0; k < MAX_PADS; k++){
@@ -4055,8 +4067,11 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
             break;
         }
     }
-    float lfoVal[MAX_PADS];
-    uint8_t trkFilterLfoSet[MAX_PADS];
+    /* Zero-init: voice-loop guards check trkLfoActive[] but not depth, so a
+     * track with LFO active at depth 0 (anyTrackLfo==false) would otherwise
+     * read uninitialized stack values here (NaN → corrupted voice position). */
+    float lfoVal[MAX_PADS] = {0.0f};
+    uint8_t trkFilterLfoSet[MAX_PADS] = {0};
 
     for(size_t i = 0; i < size; i++){
         /* ── Drenar SPI FIFO cada 4 samples (~83µs) para evitar overflow
@@ -4597,10 +4612,10 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
                 /* Comb filter via short delay line with feedback */
                 float combDelay = clampF(1.f / (gFilterCutoff > 20.f ? gFilterCutoff : 20.f) * (float)SAMPLE_RATE, 1.f, 4799.f);
                 float combFb = clampF(gFilterQ / 30.f, 0.f, 0.98f);
-                float combL = erDelayL.Read(combDelay);
-                float combR = erDelayR.Read(combDelay);
-                erDelayL.Write(clampF(L + combL * combFb, -4.f, 4.f));
-                erDelayR.Write(clampF(R + combR * combFb, -4.f, 4.f));
+                float combL = combDelayL.Read(combDelay);
+                float combR = combDelayR.Read(combDelay);
+                combDelayL.Write(clampF(L + combL * combFb, -4.f, 4.f));
+                combDelayR.Write(clampF(R + combR * combFb, -4.f, 4.f));
                 L = L * 0.5f + combL * 0.5f;
                 R = R * 0.5f + combR * 0.5f;
             } else {
@@ -4699,7 +4714,7 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
             float chorusSendMono = (chorusBusL + chorusBusR) * 0.5f;
             if(chorusStereoMode){
                 float wetL = sanitizeF(masterChorus.Process(L + chorusSendMono));
-                float wetR = sanitizeF(masterChorus.Process(R + chorusSendMono));
+                float wetR = sanitizeF(masterChorusR.Process(R + chorusSendMono));
                 L = L * (1.0f - chorusMix) + wetL * chorusMix;
                 R = R * (1.0f - chorusMix) + wetR * chorusMix;
             } else {
@@ -4808,6 +4823,11 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
 static void BuildResponse(uint8_t cmd, uint16_t seq,
                           const uint8_t* payload, uint16_t payloadLen)
 {
+    /* Latent overflow guard: txBuf is TX_BUF_SIZE bytes (header + payload). */
+    if((uint32_t)payloadLen + 8u > TX_BUF_SIZE){
+        spiErrCnt++;
+        return;
+    }
     SPIPacketHeader* r = (SPIPacketHeader*)txBuf;
     r->magic    = SPI_MAGIC_RESP;
     r->cmd      = cmd;
@@ -4835,6 +4855,14 @@ static void ProcessCommand()
     SPIPacketHeader* hdr = (SPIPacketHeader*)rxBuf;
     uint8_t* p = rxBuf + 8;
     uint16_t len = hdr->length;
+
+    /* Defense-in-depth: a corrupted/forged length must never index past rxBuf
+     * (crc16 below and every handler read stay in bounds regardless of which
+     * RX path delivered the packet). */
+    if(len > RX_BUF_SIZE - 8){
+        spiErrCnt++;
+        return;
+    }
 
     /* CRC check (skip for PING) */
     if(!kBypassIncomingCrc && hdr->cmd != CMD_PING && len > 0){
@@ -5303,12 +5331,26 @@ static void ProcessCommand()
         if(len >= 1) chorusActive = (p[0] != 0);
         break;
     case CMD_CHORUS_RATE:
-        if(len >= 4){ float v; memcpy(&v, p, 4); masterChorus.SetLfoFreq(clampF(v, 0.1f, 10.f)); }
-        else if(len >= 1) masterChorus.SetLfoFreq(p[0] / 10.0f);
+        if(len >= 4){
+            float v; memcpy(&v, p, 4);
+            float f = clampF(v, 0.1f, 10.f);
+            masterChorus.SetLfoFreq(f);
+            masterChorusR.SetLfoFreq(clampF(f * kChorusRDetune, 0.1f, 10.f));
+        } else if(len >= 1){
+            masterChorus.SetLfoFreq(p[0] / 10.0f);
+            masterChorusR.SetLfoFreq(p[0] / 10.0f * kChorusRDetune);
+        }
         break;
     case CMD_CHORUS_DEPTH:
-        if(len >= 4){ float v; memcpy(&v, p, 4); masterChorus.SetLfoDepth(clampF(v, 0.f, 1.f)); }
-        else if(len >= 1) masterChorus.SetLfoDepth(p[0] / 100.0f);
+        if(len >= 4){
+            float v; memcpy(&v, p, 4);
+            float d = clampF(v, 0.f, 1.f);
+            masterChorus.SetLfoDepth(d);
+            masterChorusR.SetLfoDepth(d);
+        } else if(len >= 1){
+            masterChorus.SetLfoDepth(p[0] / 100.0f);
+            masterChorusR.SetLfoDepth(p[0] / 100.0f);
+        }
         break;
     case CMD_CHORUS_MIX:
         if(len >= 4){ float v; memcpy(&v, p, 4); chorusMix = clampF(v, 0.f, 1.f); }
@@ -6336,6 +6378,8 @@ static void ProcessCommand()
         masterSvfR.Init((float)SAMPLE_RATE);
         erDelayL.Init();
         erDelayR.Init();
+        combDelayL.Init();
+        combDelayR.Init();
         masterDelayR.Init();
         memset(beatRepBufL, 0, sizeof(beatRepBufL));
         memset(beatRepBufR, 0, sizeof(beatRepBufR));
@@ -7411,12 +7455,16 @@ static bool LoadWavToPad(const char* filepath, uint8_t padIdx)
     uint32_t totalFrames = 0;
     int16_t* sampleData = nullptr;
 
+    /* Mark loading FIRST so the audio ISR (sequencer/live triggers) cannot
+     * start a new voice on this pad between StopPadVoices and the storage
+     * reassignment below (dangling-offset race). Same ordering rule as
+     * PreparePadRangeForReload(). */
+    padLoading[padIdx] = true;
     StopPadVoices(padIdx);
     sampleLoaded[padIdx] = false;
     sampleLength[padIdx] = 0;
     sampleTotalSamples[padIdx] = 0;
     FreeSampleStorage(padIdx);
-    padLoading[padIdx] = true;
 
     if(f_open(&fil, filepath, FA_READ) != FR_OK)
         goto done;
@@ -7861,6 +7909,10 @@ static void InitFX()
     masterChorus.SetLfoFreq(0.3f);
     masterChorus.SetLfoDepth(0.4f);
     masterChorus.SetDelay(0.75f);
+    masterChorusR.Init(sr);
+    masterChorusR.SetLfoFreq(0.3f * kChorusRDetune);
+    masterChorusR.SetLfoDepth(0.4f);
+    masterChorusR.SetDelay(0.75f);
 
     masterTremolo.Init(sr);
     masterTremolo.SetFreq(4.0f);
@@ -7916,6 +7968,8 @@ static void InitFX()
 
     erDelayL.Init();
     erDelayR.Init();
+    combDelayL.Init();
+    combDelayR.Init();
 
     masterDelayR.Init();
     masterDelayR.SetDelay(sr * 0.25f);

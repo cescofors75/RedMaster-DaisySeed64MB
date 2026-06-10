@@ -192,14 +192,10 @@ public:
 
         /* Advance global LFO */
         float lfoVal = 0.0f;
-        float lfoPitchMul = 1.0f;   /* shared by all voices: hoisted out of the
-                                       voice loop so powf runs once per sample */
         if(lfoDepth_ > 0.001f) {
             lfoPhase_ += lfoRate_ / sr_;
             if(lfoPhase_ >= 1.0f) lfoPhase_ -= 1.0f;
             lfoVal = sinf(2.0f * WTOSC_PI * lfoPhase_) * lfoDepth_;
-            if(lfoTarget_ == WT_LFO_PITCH)
-                lfoPitchMul = powf(2.0f, lfoVal * 0.5f);  /* ±0.5 octava */
         }
 
         float out = 0.0f;
@@ -230,7 +226,8 @@ public:
                                            0.0f, (float)(WT_NUM_WAVES - 1));
                         break;
                     case WT_LFO_PITCH:
-                        phase_inc_mod *= lfoPitchMul;
+                        /* ±0.5 octava de vibrato */
+                        phase_inc_mod *= powf(2.0f, lfoVal * 0.5f);
                         break;
                     case WT_LFO_VOL:
                         vol_mod = WTOSC_CLAMP(1.0f + lfoVal, 0.0f, 1.5f);

@@ -411,10 +411,6 @@ public:
 
         if (slide && active_) {
             sliding_ = true;
-            /* Distancia en semitonos al nuevo target, calculada UNA vez aquí:
-             * el decay one-pole por muestra queda en una multiplicación
-             * (antes: 2×log2f + powf libm POR MUESTRA durante el slide). */
-            slideSemis_ = 12.0f * log2f(currentFreq_ / targetFreq_);
         } else {
             sliding_     = false;
             currentFreq_ = targetFreq_;
@@ -490,14 +486,13 @@ public:
 
         /* ── 2. PITCH (slide + bend + drift) ── */
         if (sliding_) {
-            /* Slide en dominio logarítmico (semitones) — portamento natural.
-             * One-pole sobre la distancia en semitonos: (cur-tgt) *= coef.
-             * Matemáticamente idéntico al lerp log de antes, sin log2f/powf
-             * libm por muestra. */
             float slideCoef = expf(-dt_ / Clamp(params.slideTime, 0.01f, 0.5f));
-            slideSemis_ *= slideCoef;
-            currentFreq_ = targetFreq_ * SemitoneRatio(slideSemis_);
-            if (fabsf(slideSemis_) < 0.01f) {
+            /* Slide en dominio logarítmico (semitones) — portamento natural */
+            float curSemi = log2f(currentFreq_ / 440.0f) * 12.0f + 69.0f;
+            float tgtSemi = log2f(targetFreq_  / 440.0f) * 12.0f + 69.0f;
+            curSemi = curSemi * slideCoef + tgtSemi * (1.0f - slideCoef);
+            currentFreq_ = 440.0f * powf(2.0f, (curSemi - 69.0f) / 12.0f);
+            if (fabsf(currentFreq_ - targetFreq_) < 0.05f) {
                 currentFreq_ = targetFreq_;
                 sliding_ = false;
             }
@@ -599,7 +594,6 @@ public:
         active_      = false;
         gateOn_      = false;
         sliding_     = false;
-        slideSemis_  = 0.0f;
         phase_       = 0.0f;
         subPhase_    = 0.0f;
         pitchBend_   = 0.0f;
@@ -619,7 +613,6 @@ private:
     float subPhase_    = 0.0f;
     float currentFreq_ = 220.0f;
     float targetFreq_  = 220.0f;
-    float slideSemis_  = 0.0f;   /* distancia restante al target (semitones) */
     float pitchBend_   = 0.0f;
 
     /* ── Estado de nota ── */

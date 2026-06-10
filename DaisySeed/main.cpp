@@ -750,25 +750,6 @@ struct Voice {
 static Voice   voices[MAX_VOICES];
 static uint32_t voiceAge = 0;
 
-/* ── Sección crítica corta para estado compartido ISR ↔ main loop ──
- * Usos: mutación de voices[] (TriggerPad/StopPadVoices se llaman tanto
- * desde el AudioCallback —via DsqFireStep— como desde ProcessCommand y la
- * carga SD; una voz a medio escribir renderizada por la ISR produce
- * lecturas fuera de rango del sample) y drenaje del FIFO SPI (TIM6 prio 1
- * puede preemptar al AudioCallback prio 2 en plena lectura).
- * PRIMASK save/restore: anidable y seguro desde ambos contextos (~µs).
- * __disable_irq() es además barrera de compilador (clobber "memory"). */
-static inline uint32_t IrqLockEnter(void)
-{
-    uint32_t pm = __get_PRIMASK();
-    __disable_irq();
-    return pm;
-}
-static inline void IrqLockExit(uint32_t pm)
-{
-    __set_PRIMASK(pm);
-}
-
 /* ═══════════════════════════════════════════════════════════════════
  *  8. VOLÚMENES
  * ═══════════════════════════════════════════════════════════════════ */
@@ -1007,11 +988,6 @@ struct BiquadEQ {
 static DelayLine<float, MAX_DELAY_SAMPLES> DSY_SDRAM_BSS masterDelay;
 DSY_SDRAM_BSS static ReverbSc   masterReverb;
 DSY_SDRAM_BSS static Chorus     masterChorus;
-/* Dedicated right-channel chorus for stereo mode: sharing one instance for
- * both channels corrupts its internal delay/LFO state (state advances twice
- * per sample). The R LFO runs slightly faster for stereo decorrelation. */
-DSY_SDRAM_BSS static Chorus     masterChorusR;
-static constexpr float kChorusRDetune = 1.13f;
 static Tremolo    masterTremolo;
 static Compressor masterComp;
 static Fold       masterFold;
@@ -1101,11 +1077,6 @@ static bool  chorusStereoMode = true;  /* default: stereo for wider mix */
 #define ER_TAPS 6
 static DelayLine<float, 4800> DSY_SDRAM_BSS erDelayL;  /* 100ms max */
 static DelayLine<float, 4800> DSY_SDRAM_BSS erDelayR;
-/* Dedicated comb-filter delay lines: FTYPE_COMB and Early Reflections can be
- * engaged simultaneously, so they must not share storage (each Write() per
- * sample would advance the other's write pointer and corrupt both). */
-static DelayLine<float, 4800> DSY_SDRAM_BSS combDelayL;
-static DelayLine<float, 4800> DSY_SDRAM_BSS combDelayR;
 static bool  erActive  = false;
 static bool  erRouted  = true;
 static float erMix     = 0.15f;
@@ -1811,8 +1782,12 @@ static constexpr bool kAudioSafeMode = false; /* callback de audio real */
 #ifndef RED808_AUDIO_DIAG_MINIMAL
 #define RED808_AUDIO_DIAG_MINIMAL 0
 #endif
-static constexpr bool kBootDiagMinimal = (RED808_BOOT_DIAG_MINIMAL != 0); /* diagnóstico extremo: solo LED, sin audio ni FX */
-static constexpr bool kAudioDiagMinimal = (RED808_AUDIO_DIAG_MINIMAL != 0); /* diagnóstico: solo audio callback + LED */
+#ifndef RED808_BOOT_PROGRESS_DIAG
+#define RED808_BOOT_PROGRESS_DIAG 0
+#endif
+static constexpr bool kBootDiagMinimal    = (RED808_BOOT_DIAG_MINIMAL    != 0); /* diagnóstico extremo: solo LED, sin audio ni FX */
+static constexpr bool kAudioDiagMinimal   = (RED808_AUDIO_DIAG_MINIMAL   != 0); /* diagnóstico: solo audio callback + LED */
+static constexpr bool kBootProgressDiag   = (RED808_BOOT_PROGRESS_DIAG  != 0); /* diagnóstico: parpadeos de progreso en boot para localizar crash */
 static constexpr bool kEnableAudioStart = true; /* iniciar audio normal */
 static constexpr bool kEnableStartLog = true;  /* diagnóstico: ver log boot QSPI/muestras */
 static constexpr bool kEnableSynthCmdLog = true; /* diagnóstico temporal: preset/note routing */
@@ -2330,8 +2305,6 @@ static void RunStartup808SelfTest(uint32_t nowMs)
         masterReverb.SetLpFreq(7600.0f);
         masterChorus.SetLfoFreq(0.35f);
         masterChorus.SetLfoDepth(0.35f);
-        masterChorusR.SetLfoFreq(0.35f * kChorusRDetune);
-        masterChorusR.SetLfoDepth(0.35f);
 
         int picked = -1;
         for(int k = 0; k < MAX_PADS; k++){
@@ -2588,11 +2561,9 @@ static float BitCrush(float s, uint8_t bits){
 
 static void StopPadVoices(uint8_t pad)
 {
-    uint32_t pm = IrqLockEnter();
     for(int voiceIndex = 0; voiceIndex < MAX_VOICES; voiceIndex++)
         if(voices[voiceIndex].active && voices[voiceIndex].pad == pad)
             voices[voiceIndex].active = false;
-    IrqLockExit(pm);
 }
 
 static void ReleaseTrackEngine(uint8_t track, int8_t engine)
@@ -3487,46 +3458,7 @@ static void TriggerPad(uint8_t pad, uint8_t velocity,
 {
     if(pad >= MAX_PADS || !sampleLoaded[pad] || padLoading[pad]) return;
 
-    /* ── Precalcular TODO lo que no toca voices[] fuera del lock
-     *    (incluye un powf) para que la sección crítica dure ~µs ── */
-    uint32_t len = sampleLength[pad];
-    if(maxSamples > 0 && maxSamples < len) len = maxSamples;
-
-    float gain = (velocity / 127.0f)
-               * VolumeByteToGain(trkVol)
-               * trackGain[pad]
-               * clampF(sourceVolume, 0.0f, 1.5f);
-    float panF = trackPanF[pad] + (pan / 100.0f);
-    panF = clampF(panF, -1.0f, 1.0f);
-    float gL = gain * (1.0f - clampF(panF, 0.f, 1.f));
-    float gR = gain * (1.0f + clampF(panF, -1.f, 0.f));
-
-    float pos   = padReverse[pad] ? (float)(sampleLength[pad] - 1) : 0.0f;
-    float speed = padPitch[pad] * powf(2.0f, trkPitchCents[pad] / 1200.0f);
-
-    float   envInit, envAtkInc, envDecCoef;
-    uint8_t envStage;
-    if(trkEnvAdActive[pad]){
-        float atkMs = clampF(trkEnvAttackMs[pad], 0.0f, 2000.0f);
-        envInit   = (atkMs <= 0.01f) ? 1.0f : 0.0f;
-        envAtkInc = (atkMs <= 0.01f)
-            ? 1.0f
-            : (1.0f / (atkMs * (float)SAMPLE_RATE * 0.001f));
-        envDecCoef = AdDecayCoefFromMs(trkEnvDecayMs[pad]);
-        envStage   = (atkMs <= 0.01f) ? 1 : 0;
-    } else {
-        envInit    = 1.0f;
-        envAtkInc  = 1.0f;
-        envDecCoef = 1.0f;
-        envStage   = 2;
-    }
-
-    /* ── Sección crítica: choke + selección de slot + escritura de la voz.
-     *    Sin esto, la ISR de audio puede renderizar una voz a medio
-     *    escribir cuando el trigger llega desde el main loop. ── */
-    uint32_t pm = IrqLockEnter();
-
-    /* Choke group: silence any other pad in the same group */
+    /* ── Choke group: silence any other pad in the same group ── */
     uint8_t grp = chokeGroup[pad];
     if(grp > 0){
         for(int cp = 0; cp < MAX_PADS; cp++){
@@ -3573,23 +3505,45 @@ static void TriggerPad(uint8_t pad, uint8_t velocity,
         voices[slot].stealFade    = 1.0f;
     }
 
-    voices[slot].maxLen       = len;
+    uint32_t len = sampleLength[pad];
+    if(maxSamples > 0 && maxSamples < len) len = maxSamples;
+
+    /* Guardar límite efectivo en la voz */
+    voices[slot].maxLen = len;
+
+    float gain = (velocity / 127.0f)
+               * VolumeByteToGain(trkVol)
+               * trackGain[pad]
+               * clampF(sourceVolume, 0.0f, 1.5f);
+    float panF = trackPanF[pad] + (pan / 100.0f);
+    panF = clampF(panF, -1.0f, 1.0f);
+    float gL = gain * (1.0f - clampF(panF, 0.f, 1.f));
+    float gR = gain * (1.0f + clampF(panF, -1.f, 0.f));
+
     voices[slot].active       = true;
     voices[slot].pad          = pad;
-    voices[slot].pos          = pos;
-    voices[slot].speed        = speed;
+    voices[slot].pos          = padReverse[pad] ? (float)(sampleLength[pad] - 1) : 0.0f;
+    voices[slot].speed        = padPitch[pad] * powf(2.0f, trkPitchCents[pad] / 1200.0f);
     voices[slot].baseGain     = gain;  // gain pre-pan — para LFO vol/pan live update
     voices[slot].gainL        = gL;
     voices[slot].gainR        = gR;
     voices[slot].stealFade    = 1.0f;
     voices[slot].stealPending = false;
-    voices[slot].env          = envInit;
-    voices[slot].envAttackInc = envAtkInc;
-    voices[slot].envDecayCoef = envDecCoef;
-    voices[slot].envStage     = envStage;
-    voices[slot].age          = voiceAge++;
-
-    IrqLockExit(pm);
+    if(trkEnvAdActive[pad]){
+        float atkMs = clampF(trkEnvAttackMs[pad], 0.0f, 2000.0f);
+        voices[slot].env = (atkMs <= 0.01f) ? 1.0f : 0.0f;
+        voices[slot].envAttackInc = (atkMs <= 0.01f)
+            ? 1.0f
+            : (1.0f / (atkMs * (float)SAMPLE_RATE * 0.001f));
+        voices[slot].envDecayCoef = AdDecayCoefFromMs(trkEnvDecayMs[pad]);
+        voices[slot].envStage = (atkMs <= 0.01f) ? 1 : 0;
+    } else {
+        voices[slot].env = 1.0f;
+        voices[slot].envAttackInc = 1.0f;
+        voices[slot].envDecayCoef = 1.0f;
+        voices[slot].envStage = 2;
+    }
+    voices[slot].age    = voiceAge++;
 }
 
 static uint8_t ActiveVoices(){
@@ -3857,7 +3811,6 @@ static void SilenceVoicesInPadRange(uint8_t startPad, uint8_t endPad)
 {
     if(endPad > MAX_PADS)
         endPad = MAX_PADS;
-    uint32_t pm = IrqLockEnter();
     for(int voiceIndex = 0; voiceIndex < MAX_VOICES; voiceIndex++)
     {
         if(!voices[voiceIndex].active)
@@ -3866,7 +3819,6 @@ static void SilenceVoicesInPadRange(uint8_t startPad, uint8_t endPad)
         if(pad >= startPad && pad < endPad)
             voices[voiceIndex].active = false;
     }
-    IrqLockExit(pm);
 }
 
 static void ResetTrackRuntimeState(uint8_t track)
@@ -4107,11 +4059,8 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
             break;
         }
     }
-    /* Zero-init: voice-loop guards check trkLfoActive[] but not depth, so a
-     * track with LFO active at depth 0 (anyTrackLfo==false) would otherwise
-     * read uninitialized stack values here (NaN → corrupted voice position). */
-    float lfoVal[MAX_PADS] = {0.0f};
-    uint8_t trkFilterLfoSet[MAX_PADS] = {0};
+    float lfoVal[MAX_PADS];
+    uint8_t trkFilterLfoSet[MAX_PADS];
 
     for(size_t i = 0; i < size; i++){
         /* ── Drenar SPI FIFO cada 4 samples (~83µs) para evitar overflow
@@ -4123,10 +4072,7 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
          *  samplesElapsed==0 → new step boundary: advance and fire.
          *  Called BEFORE voice rendering so new voices are active this sample. */
         DSP_PROF_SCOPE(SEQ);
-        /* patternLength==0 solo es posible con dseq a medio inicializar
-         * (memset de DsqInit preemptado por esta ISR) — saltar el tick
-         * evita una división por cero en el módulo de currentStep. */
-        if(dseq.playing && dseq.patternLength != 0){
+        if(dseq.playing){
             if(dseq.samplesElapsed == 0){
                 dseq.currentStep = (dseq.currentStep + 1) % (int16_t)dseq.patternLength;
                 DsqFireStep();
@@ -4655,10 +4601,10 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
                 /* Comb filter via short delay line with feedback */
                 float combDelay = clampF(1.f / (gFilterCutoff > 20.f ? gFilterCutoff : 20.f) * (float)SAMPLE_RATE, 1.f, 4799.f);
                 float combFb = clampF(gFilterQ / 30.f, 0.f, 0.98f);
-                float combL = combDelayL.Read(combDelay);
-                float combR = combDelayR.Read(combDelay);
-                combDelayL.Write(clampF(L + combL * combFb, -4.f, 4.f));
-                combDelayR.Write(clampF(R + combR * combFb, -4.f, 4.f));
+                float combL = erDelayL.Read(combDelay);
+                float combR = erDelayR.Read(combDelay);
+                erDelayL.Write(clampF(L + combL * combFb, -4.f, 4.f));
+                erDelayR.Write(clampF(R + combR * combFb, -4.f, 4.f));
                 L = L * 0.5f + combL * 0.5f;
                 R = R * 0.5f + combR * 0.5f;
             } else {
@@ -4757,7 +4703,7 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
             float chorusSendMono = (chorusBusL + chorusBusR) * 0.5f;
             if(chorusStereoMode){
                 float wetL = sanitizeF(masterChorus.Process(L + chorusSendMono));
-                float wetR = sanitizeF(masterChorusR.Process(R + chorusSendMono));
+                float wetR = sanitizeF(masterChorus.Process(R + chorusSendMono));
                 L = L * (1.0f - chorusMix) + wetL * chorusMix;
                 R = R * (1.0f - chorusMix) + wetR * chorusMix;
             } else {
@@ -4866,11 +4812,6 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
 static void BuildResponse(uint8_t cmd, uint16_t seq,
                           const uint8_t* payload, uint16_t payloadLen)
 {
-    /* Latent overflow guard: txBuf is TX_BUF_SIZE bytes (header + payload). */
-    if((uint32_t)payloadLen + 8u > TX_BUF_SIZE){
-        spiErrCnt++;
-        return;
-    }
     SPIPacketHeader* r = (SPIPacketHeader*)txBuf;
     r->magic    = SPI_MAGIC_RESP;
     r->cmd      = cmd;
@@ -4898,14 +4839,6 @@ static void ProcessCommand()
     SPIPacketHeader* hdr = (SPIPacketHeader*)rxBuf;
     uint8_t* p = rxBuf + 8;
     uint16_t len = hdr->length;
-
-    /* Defense-in-depth: a corrupted/forged length must never index past rxBuf
-     * (crc16 below and every handler read stay in bounds regardless of which
-     * RX path delivered the packet). */
-    if(len > RX_BUF_SIZE - 8){
-        spiErrCnt++;
-        return;
-    }
 
     /* CRC check (skip for PING) */
     if(!kBypassIncomingCrc && hdr->cmd != CMD_PING && len > 0){
@@ -5374,26 +5307,12 @@ static void ProcessCommand()
         if(len >= 1) chorusActive = (p[0] != 0);
         break;
     case CMD_CHORUS_RATE:
-        if(len >= 4){
-            float v; memcpy(&v, p, 4);
-            float f = clampF(v, 0.1f, 10.f);
-            masterChorus.SetLfoFreq(f);
-            masterChorusR.SetLfoFreq(clampF(f * kChorusRDetune, 0.1f, 10.f));
-        } else if(len >= 1){
-            masterChorus.SetLfoFreq(p[0] / 10.0f);
-            masterChorusR.SetLfoFreq(p[0] / 10.0f * kChorusRDetune);
-        }
+        if(len >= 4){ float v; memcpy(&v, p, 4); masterChorus.SetLfoFreq(clampF(v, 0.1f, 10.f)); }
+        else if(len >= 1) masterChorus.SetLfoFreq(p[0] / 10.0f);
         break;
     case CMD_CHORUS_DEPTH:
-        if(len >= 4){
-            float v; memcpy(&v, p, 4);
-            float d = clampF(v, 0.f, 1.f);
-            masterChorus.SetLfoDepth(d);
-            masterChorusR.SetLfoDepth(d);
-        } else if(len >= 1){
-            masterChorus.SetLfoDepth(p[0] / 100.0f);
-            masterChorusR.SetLfoDepth(p[0] / 100.0f);
-        }
+        if(len >= 4){ float v; memcpy(&v, p, 4); masterChorus.SetLfoDepth(clampF(v, 0.f, 1.f)); }
+        else if(len >= 1) masterChorus.SetLfoDepth(p[0] / 100.0f);
         break;
     case CMD_CHORUS_MIX:
         if(len >= 4){ float v; memcpy(&v, p, 4); chorusMix = clampF(v, 0.f, 1.f); }
@@ -6421,8 +6340,6 @@ static void ProcessCommand()
         masterSvfR.Init((float)SAMPLE_RATE);
         erDelayL.Init();
         erDelayR.Init();
-        combDelayL.Init();
-        combDelayR.Init();
         masterDelayR.Init();
         memset(beatRepBufL, 0, sizeof(beatRepBufL));
         memset(beatRepBufR, 0, sizeof(beatRepBufR));
@@ -7244,14 +7161,12 @@ static volatile uint16_t spiTxIdx = 0;
 static volatile uint8_t  spiRing[SPI_RING_SIZE];
 static volatile uint16_t spiRingHead = 0;   /* escrito por ISR o AudioCB */
 static volatile uint16_t spiRingTail = 0;   /* escrito SOLO por main     */
+static volatile bool     spiDrainBusy = false; /* anti-reentrada */
 
 static void SpiDrainRxToRing()
 {
-    /* TIM6 (prio 1) puede preemptar al AudioCallback (prio 2) en mitad del
-     * drenaje; el antiguo flag anti-reentrada no era atómico (ventana entre
-     * test y set → drenaje concurrente corrompiendo spiRingHead). Sección
-     * crítica real: el FIFO RX es de 16 bytes, dura unos cientos de ciclos. */
-    uint32_t pm = IrqLockEnter();
+    if(spiDrainBusy) return;        /* reentrada → salir */
+    spiDrainBusy = true;
 
     while(SPI1->SR & SPI_SR_RXP) {
         uint8_t b = *(volatile uint8_t*)&SPI1->RXDR;
@@ -7268,7 +7183,7 @@ static void SpiDrainRxToRing()
         spiErrCnt++;
     }
 
-    IrqLockExit(pm);
+    spiDrainBusy = false;
 }
 
 extern "C" void TIM6_DAC_IRQHandler(void)
@@ -7500,16 +7415,12 @@ static bool LoadWavToPad(const char* filepath, uint8_t padIdx)
     uint32_t totalFrames = 0;
     int16_t* sampleData = nullptr;
 
-    /* Mark loading FIRST so the audio ISR (sequencer/live triggers) cannot
-     * start a new voice on this pad between StopPadVoices and the storage
-     * reassignment below (dangling-offset race). Same ordering rule as
-     * PreparePadRangeForReload(). */
-    padLoading[padIdx] = true;
     StopPadVoices(padIdx);
     sampleLoaded[padIdx] = false;
     sampleLength[padIdx] = 0;
     sampleTotalSamples[padIdx] = 0;
     FreeSampleStorage(padIdx);
+    padLoading[padIdx] = true;
 
     if(f_open(&fil, filepath, FA_READ) != FR_OK)
         goto done;
@@ -7954,10 +7865,6 @@ static void InitFX()
     masterChorus.SetLfoFreq(0.3f);
     masterChorus.SetLfoDepth(0.4f);
     masterChorus.SetDelay(0.75f);
-    masterChorusR.Init(sr);
-    masterChorusR.SetLfoFreq(0.3f * kChorusRDetune);
-    masterChorusR.SetLfoDepth(0.4f);
-    masterChorusR.SetDelay(0.75f);
 
     masterTremolo.Init(sr);
     masterTremolo.SetFreq(4.0f);
@@ -8013,8 +7920,6 @@ static void InitFX()
 
     erDelayL.Init();
     erDelayR.Init();
-    combDelayL.Init();
-    combDelayR.Init();
 
     masterDelayR.Init();
     masterDelayR.SetDelay(sr * 0.25f);
@@ -8093,6 +7998,51 @@ static void InitFX()
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+ *  26b. BOOT DIAGNOSTIC HELPERS
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* Blink LED N veces con 150ms on/off — útil para marcar etapas de boot */
+static void BootBlinkN(int n)
+{
+    for(int i = 0; i < n; i++){
+        hw.SetLed(true);  System::Delay(150);
+        hw.SetLed(false); System::Delay(150);
+    }
+    System::Delay(400);
+}
+
+/* HardFault handler personalizado — patrón SOS (3 corto · 3 largo · 3 corto).
+ * Reemplaza el "2 parpadeos y fijo" del handler por defecto de libdaisy.
+ * Con este handler el usuario verá SOS en lugar del patrón ambiguo.
+ * Usa busy-loop delay (no SysTick) para funcionar incluso con stack corrupto. */
+
+static void FaultDelay(uint32_t ms)
+{
+    /* STM32H750 @ 480MHz ≈ 480000 ciclos/ms (sin cache effects en fault) */
+    volatile uint32_t cycles = ms * 240000u;  /* ~0.5M ciclos/ms conservador */
+    while(cycles--) __asm volatile("nop");
+}
+
+static void FaultSosLoop(void)
+{
+    __disable_irq();
+    while(1)
+    {
+        for(int i = 0; i < 3; i++){ hw.SetLed(true); FaultDelay(120); hw.SetLed(false); FaultDelay(120); }
+        FaultDelay(250);
+        for(int i = 0; i < 3; i++){ hw.SetLed(true); FaultDelay(450); hw.SetLed(false); FaultDelay(150); }
+        FaultDelay(250);
+        for(int i = 0; i < 3; i++){ hw.SetLed(true); FaultDelay(120); hw.SetLed(false); FaultDelay(120); }
+        FaultDelay(1500);
+    }
+}
+
+extern "C" void HardFault_Handler(void)   { FaultSosLoop(); }
+extern "C" void MemManage_Handler(void)    { FaultSosLoop(); }
+extern "C" void BusFault_Handler(void)     { FaultSosLoop(); }
+extern "C" void UsageFault_Handler(void)   { FaultSosLoop(); }
+
+/* ═══════════════════════════════════════════════════════════════════
  *  27. MAIN
  * ═══════════════════════════════════════════════════════════════════ */
 int main()
@@ -8108,6 +8058,14 @@ int main()
     /* ── Hardware init ── */
     hw.Init();
     DspProfInit();
+
+    /* ── Boot progress markers — solo activos con RED808_BOOT_PROGRESS_DIAG=1 ──
+     * Compila con: make RED808_BOOT_PROGRESS_DIAG=1
+     * Si el LED muestra SOS → HardFault antes del primer parpadeo.
+     * Cuenta de parpadeos al crash: 1=hw.Init OK, 2=InitArrays OK,
+     * 3=InitFX OK (SDRAM OK), 4=QSPI/SD OK, 5=Audio+SPI OK → main loop. */
+#define BOOT_BLINK(n) do { if(kBootProgressDiag) BootBlinkN(n); } while(0)
+    BOOT_BLINK(1);  /* hw.Init + DspProfInit completados */
 
     if(kBootDiagMinimal)
     {
@@ -8155,8 +8113,10 @@ int main()
 
     /* ── Init state ── */
     InitArrays();
+    BOOT_BLINK(2);  /* InitArrays completado */
     if(kEnableInitFx)
         InitFX();
+    BOOT_BLINK(3);  /* InitFX completado (SDRAM OK) */
 
     /* ── Cargar WAVs desde QSPI Flash (blob en 0x900C0000) → SDRAM ── */
     if(kStartupStressReport)
@@ -8303,6 +8263,7 @@ int main()
     }
 
     Log("Samples cargados: %d / %d", loadedCount, MAX_PADS);
+    BOOT_BLINK(4);  /* QSPI/SD load completado */
 
     if(kEnableSpiSlave)
     {
@@ -8367,6 +8328,8 @@ int main()
     {
         Log("Audio: DESHABILITADO (diagnostico StartAudio)");
     }
+    BOOT_BLINK(5);  /* Audio started + SPI init OK */
+#undef BOOT_BLINK
 
     /* LED apagado por defecto; se enciende por actividad de transporte */
     hw.SetLed(false);

@@ -71,6 +71,7 @@ static inline float __fast_expf(float x) {
 #include "synth/tr505.h"
 #include "synth/tb303.h"
 #include "synth/wavetable_osc.h"
+#include "synth/raydrone.h"
 #include "synth/sh101.h"     /* I1: Roland SH-101 monosynth */
 #include "synth/fm2op.h"     /* I2: 2-operator FM Yamaha-style */
 
@@ -104,6 +105,7 @@ enum DspProfBlock : uint8_t {
     DSP_PROF_SYNTH_FM2OP,
     DSP_PROF_SYNTH_PHYS,
     DSP_PROF_SYNTH_NOISE,
+    DSP_PROF_SYNTH_RAYDRONE,
     DSP_PROF_SYNTH_ROUTING,
     DSP_PROF_MASTER_FX,
     DSP_PROF_OUTPUT,
@@ -185,6 +187,7 @@ static const char* DspProfName(uint8_t block)
         case DSP_PROF_SYNTH_FM2OP: return "fm2op";
         case DSP_PROF_SYNTH_PHYS: return "phys";
         case DSP_PROF_SYNTH_NOISE: return "noise";
+        case DSP_PROF_SYNTH_RAYDRONE: return "raydrone";
         case DSP_PROF_SYNTH_ROUTING: return "synth_routing";
         case DSP_PROF_MASTER_FX: return "master_fx";
         case DSP_PROF_OUTPUT: return "output";
@@ -374,7 +377,8 @@ static inline void DspProfBlockDone() {}
 #define SYNTH_ENGINE_FM2OP 6  /* I2: 2-operator FM */
 #define SYNTH_ENGINE_PHYS  7  /* Physical modeling: ModalVoice/StringVoice */
 #define SYNTH_ENGINE_NOISE 8  /* Noise/texture: Particle percussion */
-#define SYNTH_ENGINE_COUNT 9
+#define SYNTH_ENGINE_RAYDRONE 9 /* RayDrone: render granular Monte-Carlo (drones/shimmer) */
+#define SYNTH_ENGINE_COUNT 10
 
 enum MasterFxRouteId : uint8_t {
     MASTER_FX_ROUTE_FILTER = 0,
@@ -866,7 +870,8 @@ static inline VoicePriority PadPriority(uint8_t pad)
         case SYNTH_ENGINE_303:  return VPRI_HIGH;
         case SYNTH_ENGINE_SH101:
         case SYNTH_ENGINE_FM2OP:
-        case SYNTH_ENGINE_PHYS: return VPRI_MEDIUM;
+        case SYNTH_ENGINE_PHYS:
+        case SYNTH_ENGINE_RAYDRONE: return VPRI_MEDIUM;
         case SYNTH_ENGINE_WTOSC:
         case SYNTH_ENGINE_NOISE: return VPRI_LOW;
         default: /* sampler */  return VPRI_MEDIUM;
@@ -1655,6 +1660,13 @@ static float physStringGain = 0.8f;
 static bool  physModalActive = false;
 static bool  physStringActive = false;
 
+/* RayDrone — render granular Monte-Carlo. La instancia ocupa ~334 KB
+ * (fuente armonica interna + red de espacio + shimmer), asi que va a
+ * SDRAM obligatoriamente; en la RAM interna no cabe. */
+DSY_SDRAM_BSS static RayDrone::Engine synthRayDrone;
+/* Pad que alimenta al motor como "escena". -1 = fuente armonica interna. */
+static int8_t rayDroneSourcePad = -1;
+
 /* Noise/Texture engine — DaisySP Particle */
 static Particle noisePart;
 static float noisePartGain  = 0.6f;
@@ -1846,14 +1858,14 @@ static inline void Synth808TriggerByPad(uint8_t padIdx, float velocity)
 
 /* Bitmask: qué engines están activos */
 static constexpr float kDrumBusHeadroom = 0.70f;  // evita clipping al mezclar 808/909/505
-static uint16_t synthActiveMask = 0x01FF;  /* all 9 engines active */
+static uint16_t synthActiveMask = 0x03FF;  /* all 10 engines active */
 static uint8_t pianoSelectedEngine = SYNTH_ENGINE_303;
 
 static inline bool IsPianoMelodicEngine(uint8_t engine)
 {
     return engine == SYNTH_ENGINE_303 || engine == SYNTH_ENGINE_WTOSC ||
            engine == SYNTH_ENGINE_SH101 || engine == SYNTH_ENGINE_FM2OP ||
-           engine == SYNTH_ENGINE_PHYS;
+           engine == SYNTH_ENGINE_PHYS || engine == SYNTH_ENGINE_RAYDRONE;
 }
 
 #ifndef RED808_ENABLE_SPI_SLAVE
@@ -2720,6 +2732,9 @@ static void ReleaseTrackEngine(uint8_t track, int8_t engine)
         case SYNTH_ENGINE_NOISE:
             noisePartActive = false;
             break;
+        case SYNTH_ENGINE_RAYDRONE:
+            synthRayDrone.NoteOff();
+            break;
         default:
             break;
     }
@@ -2734,6 +2749,7 @@ static void ReleaseAllSynthEngines()
     physModalActive = false;
     physStringActive = false;
     noisePartActive = false;
+    synthRayDrone.NoteOff();
 }
 
 static void ReleaseSynthEngineState(uint8_t engine)
@@ -2762,6 +2778,9 @@ static void ReleaseSynthEngineState(uint8_t engine)
             break;
         case SYNTH_ENGINE_NOISE:
             noisePartActive = false;
+            break;
+        case SYNTH_ENGINE_RAYDRONE:
+            synthRayDrone.NoteOff();
             break;
         default:
             break;
@@ -3575,9 +3594,46 @@ static void ApplySynthPreset(uint8_t engine, uint8_t presetId)
         case SYNTH_ENGINE_PHYS:
             ApplyPhysPreset(preset);
             break;
+        case SYNTH_ENGINE_RAYDRONE:
+            synthRayDrone.ApplyPreset(preset);
+            break;
         default:
             break;
     }
+}
+
+/* Engancha un pad cargado como "escena" del render granular. Un pad no
+ * cargado (o -1) devuelve el motor a su fuente armonica interna, de modo
+ * que RayDrone siempre suena aunque no haya ningun sample en el pool. */
+static void SetRayDroneSource(int8_t pad)
+{
+    if(pad >= 0 && pad < (int8_t)MAX_PADS && sampleLoaded[pad]
+       && !padLoading[pad] && sampleLength[pad] >= 4){
+        rayDroneSourcePad = pad;
+        synthRayDrone.SetSource(SamplePtr((uint8_t)pad), sampleLength[pad],
+                                (float)SAMPLE_RATE);
+    } else {
+        rayDroneSourcePad = -1;
+        synthRayDrone.UseInternalSource();
+    }
+}
+
+/* El pool de samples se recoloca al cargar, borrar o reasignar un pad, y
+ * con ello cambian offset y longitud. Si RayDrone se quedara con el
+ * puntero viejo leeria el hueco de otro pad. En vez de tocar los ~20
+ * sitios que mutan el pool, se revalida desde el bucle principal: es
+ * barato (dos comparaciones) y no puede quedarse desincronizado. */
+static void RayDroneRevalidateSource()
+{
+    if(rayDroneSourcePad < 0)
+        return;
+    const uint8_t pad = (uint8_t)rayDroneSourcePad;
+    const bool ok = (pad < MAX_PADS) && sampleLoaded[pad] && !padLoading[pad]
+                    && sampleLength[pad] >= 4;
+    const int16_t* want = ok ? SamplePtr(pad) : nullptr;
+    const uint32_t wantLen = ok ? sampleLength[pad] : 0;
+    if(synthRayDrone.SourceData() != want || synthRayDrone.SourceLen() != wantLen)
+        synthRayDrone.SetSource(want, wantLen, (float)SAMPLE_RATE);
 }
 
 static void ApplyDefaultSynthPresets()
@@ -3590,6 +3646,7 @@ static void ApplyDefaultSynthPresets()
     ApplySynthPreset(SYNTH_ENGINE_SH101, 0);
     ApplySynthPreset(SYNTH_ENGINE_FM2OP, 0);
     ApplySynthPreset(SYNTH_ENGINE_PHYS, 0);
+    ApplySynthPreset(SYNTH_ENGINE_RAYDRONE, 0);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -4029,6 +4086,8 @@ static void DsqReleaseHeldNotes(uint8_t track)
         case SYNTH_ENGINE_FM2OP: synthFM2Op.NoteOff(); break;
         case SYNTH_ENGINE_PHYS:
             physModalActive = false; physStringActive = false; break;
+        case SYNTH_ENGINE_RAYDRONE:
+            synthRayDrone.NoteOff(); break;
         case SYNTH_ENGINE_NOISE: noisePartActive = false; break;
         default: break;
     }
@@ -4420,6 +4479,10 @@ static void DsqTriggerTrackNow(uint8_t track, DsqStepFull& s, uint8_t velocity)
             notes[1] = notes[2] = notes[3] = 0;
             break;
         }
+        case SYNTH_ENGINE_RAYDRONE:
+            synthRayDrone.NoteOn(notes[0], vel);
+            notes[1] = notes[2] = notes[3] = 0;
+            break;
         case SYNTH_ENGINE_NOISE: {
             float freq = 440.f * powf(2.f, (notes[0] - 69) / 12.f);
             noisePart.SetFreq(freq); noisePart.SetDensity(0.5f + vel * 0.5f);
@@ -4590,6 +4653,15 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         int8_t _e = dsqTrackEngine[_t];
         if(_e >= 0 && _e < SYNTH_ENGINE_COUNT && engTrk[_e] < 0)
             engTrk[_e] = (int8_t)_t;
+    }
+
+    /* RayDrone avanza sus procesos lentos (constelacion recursiva de
+     * focos, LFOs de variacion, mutacion) una vez por bloque, no por
+     * muestra. Bajo shed de CPU se recorta el techo de granos vivos: el
+     * motor sigue sonando, solo que la nube adelgaza. */
+    if(synthActiveMask & (1 << SYNTH_ENGINE_RAYDRONE)){
+        synthRayDrone.SetGrainCap(fxShed ? 20 : 48);
+        synthRayDrone.Tick((int)size);
     }
 
     const bool revEng = IsReverbEngaged();
@@ -5116,6 +5188,27 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
             synthTobus(sanitizeF(s), engTrk[SYNTH_ENGINE_PHYS]);
             DSP_PROF_END(SYNTH_ROUTING);
         }
+        if ((synthActiveMask & (1 << SYNTH_ENGINE_RAYDRONE))
+            && synthRayDrone.IsActive()){
+            DSP_PROF_SCOPE(SYNTH_RAYDRONE);
+            float rdL, rdR;
+            synthRayDrone.Process(rdL, rdR);
+            rdL = sanitizeF(rdL) * 0.63f;
+            rdR = sanitizeF(rdR) * 0.63f;
+            DSP_PROF_END(SYNTH_RAYDRONE);
+            DSP_PROF_SCOPE(SYNTH_ROUTING);
+            /* Unico motor estereo del firmware. La cadena de FX de track es
+             * mono, asi que se descompone en M/S: el medio pasa por los FX
+             * del track (coste igual que cualquier otro motor) y el lado se
+             * suma directo al bus. Asi conserva la anchura sin duplicar la
+             * cadena de efectos. */
+            const float rdMid  = (rdL + rdR) * 0.5f;
+            const float rdSide = (rdL - rdR) * 0.5f;
+            synthTobus(rdMid, engTrk[SYNTH_ENGINE_RAYDRONE]);
+            busL += rdSide;
+            busR -= rdSide;
+            DSP_PROF_END(SYNTH_ROUTING);
+        }
         if (synthActiveMask & (1 << SYNTH_ENGINE_NOISE)){
             if(noisePartActive){
                 DSP_PROF_SCOPE(SYNTH_NOISE);
@@ -5499,6 +5592,9 @@ static void ProcessCommand()
                         physStringActive = true;
                         break;
                     }
+                    case SYNTH_ENGINE_RAYDRONE:
+                        synthRayDrone.NoteOn(pad < 16 ? trackWtNote[pad] : 60, fvel);
+                        break;
                     case SYNTH_ENGINE_NOISE: {
                         float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
                         noisePart.SetFreq(freq);
@@ -5573,6 +5669,9 @@ static void ProcessCommand()
                         physStringActive = true;
                         break;
                     }
+                    case SYNTH_ENGINE_RAYDRONE:
+                        synthRayDrone.NoteOn(pad < 16 ? trackWtNote[pad] : 60, fvel);
+                        break;
                     case SYNTH_ENGINE_NOISE: {
                         float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
                         noisePart.SetFreq(freq);
@@ -7021,6 +7120,8 @@ static void ProcessCommand()
         physModal.Init((float)SAMPLE_RATE);
         physString.Init((float)SAMPLE_RATE);
         noisePart.Init((float)SAMPLE_RATE);
+        synthRayDrone.Init((float)SAMPLE_RATE);
+        rayDroneSourcePad = -1;
         physModalActive = false;
         physStringActive = false;
         noisePartActive = false;
@@ -7105,6 +7206,10 @@ static void ProcessCommand()
                     physStringActive = true;
                     break;
                 }
+                case SYNTH_ENGINE_RAYDRONE:
+                    synthRayDrone.NoteOn((instrument < 16) ? trackWtNote[instrument] : 60,
+                                         velocity);
+                    break;
                 case SYNTH_ENGINE_NOISE: {
                     uint8_t note = (instrument < 16) ? trackWtNote[instrument] : 60;
                     float freq = 440.f * powf(2.f, (note - 69) / 12.f);
@@ -7211,6 +7316,15 @@ static void ProcessCommand()
                         case 9: physStringGain = clampF(val, 0.f, 1.f);           break;
                     }
                     break;
+                case SYNTH_ENGINE_RAYDRONE:
+                    /* paramId 100 elige la escena: -1 (o pad sin cargar) usa
+                     * la fuente armonica interna; 0..23 engancha ese pad. El
+                     * resto de ids son los del propio motor (ver raydrone.h). */
+                    if(paramId == 100)
+                        SetRayDroneSource((int8_t)clampF(val, -1.f, 127.f));
+                    else
+                        synthRayDrone.SetParam(paramId, val);
+                    break;
                 case SYNTH_ENGINE_NOISE:
                     switch(paramId){
                         case 0: noisePart.SetFreq(clampF(val, 20.f, 10000.f));    break;
@@ -7257,6 +7371,7 @@ static void ProcessCommand()
                     physModalActive = false;
                     physStringActive = false;
                     break;
+                case SYNTH_ENGINE_RAYDRONE: synthRayDrone.NoteOff(); break;
                 default: break;
             }
         } else {
@@ -7267,6 +7382,7 @@ static void ProcessCommand()
             wtOsc.AllNotesOff();
             physModalActive = false;
             physStringActive = false;
+            synthRayDrone.NoteOff();
         }
         break;
 
@@ -7391,6 +7507,9 @@ static void ProcessCommand()
                     physStringActive = true;
                     break;
                 }
+                case SYNTH_ENGINE_RAYDRONE:
+                    synthRayDrone.NoteOn(midiNote, vel01);
+                    break;
                 case SYNTH_ENGINE_NOISE: {
                     float freq = 440.f * powf(2.f, (midiNote - 69) / 12.f);
                     noisePart.SetFreq(freq);
@@ -7464,6 +7583,9 @@ static void ProcessCommand()
                             physStringActive = true;
                             break;
                         }
+                        case SYNTH_ENGINE_RAYDRONE:
+                            synthRayDrone.NoteOn(pad < 16 ? trackWtNote[pad] : 60, fvel);
+                            break;
                         case SYNTH_ENGINE_NOISE: {
                             float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
                             noisePart.SetFreq(freq);
@@ -8715,6 +8837,12 @@ static void InitFX()
     synthSH101.Init(sr);  /* I1 */
     synthFM2Op.Init(sr);  /* I2 */
 
+    /* RayDrone — render granular. Init() genera la fuente armonica
+     * interna (2 s en SDRAM), asi que se llama una sola vez al arrancar. */
+    synthRayDrone.Init(sr);
+    synthRayDrone.ApplyPreset(0);
+    rayDroneSourcePad = -1;
+
     /* Physical Modeling engine */
     physModal.Init(sr);
     physModal.SetFreq(220.f);
@@ -9113,6 +9241,10 @@ int main()
 
     /* ── Main loop ── */
     while(1){
+
+        /* La escena de RayDrone puede haber quedado obsoleta si se cargo
+         * o se borro el sample del pad que la alimenta. */
+        RayDroneRevalidateSource();
 
         /* ━━━━━ SPI1 slave transport — RX via ring buffer (ISR) ━━━━━
          * SPI1_IRQHandler drena RXFIFO al ring buffer en tiempo real.

@@ -188,7 +188,8 @@ static inline float Rng01(uint32_t& s) {
     return (float)Xorshift32(s) * (1.0f / 4294967296.0f);
 }
 
-/** 2^(semitonos/12) por tabla + desplazamiento de octava (sin powf). */
+/** 2^(semitonos/12). Solo se llama al nacer un grano (unas decenas por
+ *  segundo), nunca por muestra, asi que el powf no molesta aqui. */
 static inline float SemitoneRatio(float semitones) {
     return powf(2.0f, semitones * (1.0f / 12.0f));
 }
@@ -307,11 +308,16 @@ enum Material : uint8_t {
 };
 
 struct MaterialSpec {
-    float ratio[kModes];  /* parciales relativos a la fundamental */
-    float amp[kModes];    /* peso de cada modo                    */
-    float q;              /* Q base (mayor = cola mas larga)      */
-    float bright;         /* inclinacion espectral 0=oscuro 1=brillante */
-    float absorb;         /* absorcion de la camara de rayos      */
+    float ratio[kModes];   /* parciales relativos a la fundamental        */
+    /* Peso de cada modo, con la inclinacion espectral YA aplicada. Era
+     * amp[m] * ratio[m]^(-1.35 + bright*1.15), calculado en cada
+     * UpdateModes() — es decir ocho powf por note-on. Como solo depende
+     * de constantes del material, se hornea aqui: se ahorra el powf y,
+     * sobre todo, permite que el motor Rust (no_std, sin pow) use
+     * exactamente los mismos numeros. */
+    float weight[kModes];
+    float q;               /* Q base (mayor = cola mas larga)             */
+    float absorb;          /* absorcion de la camara de rayos             */
 };
 
 static inline const MaterialSpec& MaterialTable(uint8_t m) {
@@ -319,34 +325,44 @@ static inline const MaterialSpec& MaterialTable(uint8_t m) {
     static const MaterialSpec kSpecs[MAT_COUNT] = {
         /* MAT_NONE — armonico plano, banco practicamente transparente */
         { { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f },
-          { 1.00f, .50f, .33f, .25f, .20f, .16f, .14f, .12f }, 22.0f, 0.50f, 0.16f },
+          { 1.000000f, 0.292194f, 0.140846f, 0.085378f, 0.057455f, 0.039907f, 0.030987f, 0.023949f },
+          22.0f, 0.16f },
         /* MAT_METAL — barra libre-libre */
         { { 1.0f, 2.756f, 5.404f, 8.933f, 13.34f, 18.64f, 24.82f, 31.87f },
-          { 1.00f, .82f, .68f, .54f, .42f, .32f, .24f, .17f }, 120.0f, 0.86f, 0.30f },
+          { 1.000000f, 0.568687f, 0.369827f, 0.244954f, 0.164842f, 0.111306f, 0.075281f, 0.048722f },
+          120.0f, 0.3f },
         /* MAT_WOOD — barra de marimba afinada, decae deprisa */
         { { 1.0f, 3.93f, 10.88f, 21.3f, 34.8f, 51.6f, 71.5f, 94.6f },
-          { 1.00f, .46f, .22f, .11f, .06f, .04f, .02f, .01f }, 34.0f, 0.34f, 0.055f },
+          { 1.000000f, 0.123804f, 0.022300f, 0.005854f, 0.001994f, 0.000911f, 0.000333f, 0.000127f },
+          34.0f, 0.055f },
         /* MAT_GLASS — copa: casi barra pero Q altisimo */
-        { { 1.0f, 2.71f, 5.15f, 8.43f, 12.50f, 17.40f, 23.10f, 29.60f },
-          { 1.00f, .74f, .62f, .52f, .44f, .36f, .29f, .22f }, 210.0f, 0.92f, 0.20f },
+        { { 1.0f, 2.71f, 5.15f, 8.43f, 12.5f, 17.4f, 23.1f, 29.6f },
+          { 1.000000f, 0.553101f, 0.384188f, 0.279037f, 0.210453f, 0.156337f, 0.115937f, 0.081810f },
+          210.0f, 0.2f },
         /* MAT_WATER — cuasi-armonico, parciales altos a la deriva */
         { { 1.0f, 2.0f, 3.0f, 4.2f, 5.4f, 6.9f, 8.3f, 10.1f },
-          { 1.00f, .62f, .44f, .34f, .25f, .18f, .13f, .09f }, 48.0f, 0.40f, 0.11f },
+          { 1.000000f, 0.334561f, 0.165506f, 0.094795f, 0.055733f, 0.032262f, 0.019768f, 0.011492f },
+          48.0f, 0.11f },
         /* MAT_PLASMA — inarmonico irregular + no linealidad fuerte */
         { { 1.0f, 2.31f, 3.87f, 6.13f, 9.02f, 12.71f, 17.33f, 23.02f },
-          { 1.00f, .70f, .58f, .46f, .36f, .28f, .21f, .15f }, 64.0f, 0.72f, 0.38f },
+          { 1.000000f, 0.452160f, 0.286182f, 0.178527f, 0.114205f, 0.074267f, 0.047377f, 0.029179f },
+          64.0f, 0.38f },
         /* MAT_STONE — denso, oscuro, Q bajo */
-        { { 1.0f, 2.10f, 3.40f, 4.90f, 6.80f, 9.10f, 11.60f, 14.50f },
-          { 1.00f, .55f, .32f, .19f, .11f, .07f, .04f, .02f }, 18.0f, 0.22f, 0.16f },
+        { { 1.0f, 2.1f, 3.4f, 4.9f, 6.8f, 9.1f, 11.6f, 14.5f },
+          { 1.000000f, 0.243718f, 0.083583f, 0.033236f, 0.013432f, 0.006209f, 0.002719f, 0.001064f },
+          18.0f, 0.16f },
         /* MAT_SKIN — membrana circular (ceros de Bessel) */
-        { { 1.0f, 1.593f, 2.135f, 2.295f, 2.653f, 2.917f, 3.155f, 3.500f },
-          { 1.00f, .70f, .52f, .48f, .38f, .30f, .24f, .18f }, 28.0f, 0.28f, 0.13f },
+        { { 1.0f, 1.593f, 2.135f, 2.295f, 2.653f, 2.917f, 3.155f, 3.5f },
+          { 1.000000f, 0.433731f, 0.238442f, 0.204342f, 0.139374f, 0.099808f, 0.073661f, 0.049656f },
+          28.0f, 0.13f },
         /* MAT_STRING — armonico puro, Q alto */
         { { 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f },
-          { 1.00f, .76f, .58f, .45f, .35f, .27f, .21f, .16f }, 150.0f, 0.66f, 0.09f },
+          { 1.000000f, 0.504551f, 0.303005f, 0.198333f, 0.135200f, 0.093643f, 0.066492f, 0.046816f },
+          150.0f, 0.09f },
         /* MAT_ICE — inarmonico agudo, Q extremo */
-        { { 1.0f, 3.01f, 6.02f, 9.44f, 14.10f, 19.80f, 26.30f, 33.90f },
-          { 1.00f, .86f, .76f, .66f, .56f, .46f, .37f, .28f }, 260.0f, 0.97f, 0.24f },
+        { { 1.0f, 3.01f, 6.02f, 9.44f, 14.1f, 19.8f, 26.3f, 33.9f },
+          { 1.000000f, 0.664163f, 0.498882f, 0.389864f, 0.301090f, 0.228397f, 0.171879f, 0.122554f },
+          260.0f, 0.24f },
     };
     return kSpecs[m < MAT_COUNT ? m : 0];
 }
@@ -1190,7 +1206,9 @@ class Engine
      *  divide por sqrt(nModos) para que la suma incoherente de los
      *  ocho vuelva a nivel unidad. El tope de compensacion evita que
      *  un modo de Q extremo excitado por una fuente tonal (que SI cae
-     *  justo en su banda) reviente el bus. */
+     *  justo en su banda) reviente el bus.
+     *
+     *  Sin powf: los pesos espectrales vienen horneados en la tabla. */
     void UpdateModes()
     {
         const MaterialSpec& sp = MaterialTable(material_);
@@ -1222,10 +1240,7 @@ class Engine
             const float makeup = Clamp(sqrtf(sr_ / (kPi * bw)), 1.0f, 500.0f);
             modes_[m].b0 = b0Peak * makeup;
 
-            /* Inclinacion espectral: `bright` decide cuanto pesan los
-             * parciales altos (metal/hielo brillan, piedra no). */
-            const float tilt = powf(sp.ratio[m], -1.35f + sp.bright * 1.15f);
-            modeAmp_[m] = sp.amp[m] * tilt;
+            modeAmp_[m] = sp.weight[m];
             ampSq += modeAmp_[m] * modeAmp_[m];
         }
         /* Suma incoherente: la norma es la raiz de la suma de cuadrados. */

@@ -26,6 +26,7 @@
 #include "daisysp.h"
 #include "ff_gen_drv.h"
 #include "../../shared/red808_protocol_codes.h"
+#include "../../shared/raydrone_protocol.h"
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
@@ -72,6 +73,7 @@ static inline float __fast_expf(float x) {
 #include "synth/tb303.h"
 #include "synth/wavetable_osc.h"
 #include "synth/raydrone.h"
+#include "raydrone_dsp.h"
 #include "synth/sh101.h"     /* I1: Roland SH-101 monosynth */
 #include "synth/fm2op.h"     /* I2: 2-operator FM Yamaha-style */
 
@@ -363,7 +365,7 @@ static inline void DspProfBlockDone() {}
 #define CMD_SYNTH_NOTE_ON     0xC2  /* [midiNote(1), accent(1), slide(1)] → 303 */
 #define CMD_SYNTH_NOTE_OFF    0xC3  /* 303 note off */
 #define CMD_SYNTH_303_PARAM   0xC4  /* [paramId(1), value(4)] → 303 params */
-#define CMD_SYNTH_ACTIVE      0xC5  /* [engineMask(1)] enable/disable engines */
+#define CMD_SYNTH_ACTIVE      0xC5  /* [maskLo(1), maskHi(1 opcional)] */
 #define CMD_SYNTH_PRESET      0xC6  /* [engine(1), preset(1)] apply factory preset */
 #define CMD_SYNTH_NOTE_ON_EX  0xC7  /* [engine(1), midiNote(1), velocity(1), accent(1), slide(1)] generic melodic note-on */
 
@@ -378,7 +380,12 @@ static inline void DspProfBlockDone() {}
 #define SYNTH_ENGINE_PHYS  7  /* Physical modeling: ModalVoice/StringVoice */
 #define SYNTH_ENGINE_NOISE 8  /* Noise/texture: Particle percussion */
 #define SYNTH_ENGINE_RAYDRONE 9 /* RayDrone: render granular Monte-Carlo (drones/shimmer) */
+#ifdef SYNTH_ENGINE_COUNT
+#undef SYNTH_ENGINE_COUNT /* mantener el contador local ligado a este firmware */
+#endif
 #define SYNTH_ENGINE_COUNT 10
+static constexpr uint16_t SYNTH_ALL_ENGINES_MASK =
+    (uint16_t)((1u << SYNTH_ENGINE_COUNT) - 1u);
 
 enum MasterFxRouteId : uint8_t {
     MASTER_FX_ROUTE_FILTER = 0,
@@ -1078,6 +1085,15 @@ static bool  autowahRouted  = true;
 static float autowahLevel   = 0.5f;
 static float autowahMix     = 0.5f;
 
+/* RayDrone P4: renderer granular completo sobre una cinta master de 4 s. */
+DSY_SDRAM_BSS static float raydroneTape[RaydroneDsp::kTapeSamples];
+DSY_SDRAM_BSS static float raydroneReflectionL[RaydroneDsp::kReflectionBufferSamples];
+DSY_SDRAM_BSS static float raydroneReflectionR[RaydroneDsp::kReflectionBufferSamples];
+DSY_SDRAM_BSS static float raydroneChorusL[RaydroneDsp::kChorusBufferSamples];
+DSY_SDRAM_BSS static float raydroneChorusR[RaydroneDsp::kChorusBufferSamples];
+static RaydroneDsp raydrone;
+static bool raydroneRouted = true;
+
 /* Stereo Width (Mid-Side) — 100 = normal, 0 = mono, 200 = super wide */
 static float stereoWidth    = 1.0f;  /* 0..2 mapped from 0..200% */
 
@@ -1178,6 +1194,7 @@ static bool* GetMasterFxRouteFlag(uint8_t fxId)
         case MASTER_FX_ROUTE_LIMITER:    return &limiterRouted;
         case MASTER_FX_ROUTE_AUTOWAH:    return &autowahRouted;
         case MASTER_FX_ROUTE_EARLY_REF:  return &erRouted;
+        case MASTER_FX_ROUTE_RAYDRONE:   return &raydroneRouted;
         default:                         return nullptr;
     }
 }
@@ -1858,7 +1875,7 @@ static inline void Synth808TriggerByPad(uint8_t padIdx, float velocity)
 
 /* Bitmask: qué engines están activos */
 static constexpr float kDrumBusHeadroom = 0.70f;  // evita clipping al mezclar 808/909/505
-static uint16_t synthActiveMask = 0x03FF;  /* all 10 engines active */
+static uint16_t synthActiveMask = SYNTH_ALL_ENGINES_MASK;
 static uint8_t pianoSelectedEngine = SYNTH_ENGINE_303;
 
 static inline bool IsPianoMelodicEngine(uint8_t engine)
@@ -1941,6 +1958,7 @@ static uint8_t perfStressProfile = 0;
 static uint32_t perfStressNextMs = 0;
 static uint8_t perfStressStep = 0;
 static bool audioFxShed = false;
+static bool raydroneCpuShed = false;
 static bool startupStressReportActive = false;
 static bool startupStressReportDone = false;
 static uint32_t startupStressStartMs = 0;
@@ -2101,6 +2119,8 @@ static void ResetMasterProcessingState()
     limiterRouted = true;
     autowahRouted = true;
     erRouted = true;
+    raydroneRouted = true;
+    raydrone.StageDefaults();
 
     gFilterRouted = true;
     gFilterType = FTYPE_NONE;
@@ -4646,6 +4666,14 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
         audioFxShed = false;
     const bool fxShed = audioFxShed;
 
+    /* RayDrone baja calidad antes que el resto del master: conserva margen
+     * para batería+sintes y vuelve solo al renderer completo con histéresis. */
+    if(blockCpuAvg > 72.0f)
+        raydroneCpuShed = true;
+    else if(blockCpuAvg < 58.0f)
+        raydroneCpuShed = false;
+    raydrone.BeginBlock(raydroneRouted, fxShed || raydroneCpuShed, size);
+
     /* ═ Pre-calcular: primer track que usa cada motor de síntesis ═ */
     int8_t engTrk[SYNTH_ENGINE_COUNT];
     for(int _ei = 0; _ei < SYNTH_ENGINE_COUNT; _ei++) engTrk[_ei] = -1;
@@ -5300,6 +5328,9 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
             }
         }
 
+        /* RayDrone P4 procesa la cinta del bus master; nunca activa el sinte 9. */
+        raydrone.Process(L, R, L, R);
+
         /* ── Autowah ── */
         if(!fxShed && IsAutowahEngaged()){
             float awL = sanitizeF(masterAutowah.Process(L));
@@ -5867,6 +5898,13 @@ static void ProcessCommand()
         if(len >= 4){
             memcpy(&gFilterSrReduce, p, 4);
             if(gFilterSrReduce > (uint32_t)SAMPLE_RATE) gFilterSrReduce = 0;
+        }
+        break;
+    case CMD_RAYDRONE_CONFIG:
+        if(len == sizeof(RaydroneConfigPayload)){
+            RaydroneConfigPayload config;
+            memcpy(&config, p, sizeof(config));
+            raydrone.StageConfig(config);
         }
         break;
     case CMD_MASTER_FX_ROUTE:
@@ -7142,7 +7180,7 @@ static void ProcessCommand()
         memset(beatRepBufR, 0, sizeof(beatRepBufR));
         memset(chokeGroup, 0, sizeof(chokeGroup));
         songLength = 0; songPlaying = false; songIdx = 0; songRepeatCnt = 0;
-        synthActiveMask = 0x01FF;  /* all 9 engines active */
+        synthActiveMask = SYNTH_ALL_ENGINES_MASK;
         break;
 
     /* ════════════════════════════════════════════
@@ -7419,7 +7457,10 @@ static void ProcessCommand()
             if(len >= 2)
                 synthActiveMask = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
             else
-                synthActiveMask = p[0];
+                /* El formato legado solo controla los motores 0..7.
+                 * Conservar la parte alta evita apagar NOISE/RAYDRONE. */
+                synthActiveMask = (synthActiveMask & 0xFF00u) | p[0];
+            synthActiveMask &= SYNTH_ALL_ENGINES_MASK;
             if((oldMask & (1 << SYNTH_ENGINE_303)) && !(synthActiveMask & (1 << SYNTH_ENGINE_303)))
                 acid303.NoteOff();
             if((oldMask & (1 << SYNTH_ENGINE_WTOSC)) && !(synthActiveMask & (1 << SYNTH_ENGINE_WTOSC)))
@@ -7434,6 +7475,8 @@ static void ProcessCommand()
             }
             if((oldMask & (1 << SYNTH_ENGINE_NOISE)) && !(synthActiveMask & (1 << SYNTH_ENGINE_NOISE)))
                 noisePartActive = false;
+            if((oldMask & (1 << SYNTH_ENGINE_RAYDRONE)) && !(synthActiveMask & (1 << SYNTH_ENGINE_RAYDRONE)))
+                synthRayDrone.NoteOff();
         }
         break;
 
@@ -8727,6 +8770,17 @@ static void InitFX()
     float sr = (float)SAMPLE_RATE;
 
     ResetMasterProcessingState();
+    RaydroneDsp::Storage raydroneStorage = {
+        raydroneTape,
+        RaydroneDsp::kTapeSamples,
+        raydroneReflectionL,
+        raydroneReflectionR,
+        RaydroneDsp::kReflectionBufferSamples,
+        raydroneChorusL,
+        raydroneChorusR,
+        RaydroneDsp::kChorusBufferSamples,
+    };
+    raydrone.Init(sr, raydroneStorage);
 
     for(int i = 0; i < MAX_PADS; i++){
         trkFxRouted[i] = false;

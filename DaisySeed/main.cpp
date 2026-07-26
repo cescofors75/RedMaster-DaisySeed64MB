@@ -5442,6 +5442,65 @@ static bool isWavFile(const char* fname);
 static uint8_t FillMissingCanonicalPadsFromFamilies(uint8_t startPad, uint8_t maxPads,
                                                      const char* kitPath = nullptr);
 
+/* Shared by CMD_TRIGGER_LIVE / CMD_TRIGGER_SEQ / CMD_BULK_TRIGGERS: routes a
+ * trigger to the synth engine assigned to `pad`'s track. Each call site
+ * still owns deciding whether to call this at all (sampler fallback,
+ * TriggerPad(), the CMD_TRIGGER_LIVE-only snare diagnostic, etc.) — only the
+ * per-engine dispatch itself, which used to be copy-pasted three times, is
+ * shared here. */
+static void TriggerSynthEngineForTrack(uint8_t pad, int8_t engine, float fvel)
+{
+    switch(engine){
+        case SYNTH_ENGINE_808:
+            if(pad < 16) synth808.Trigger(padTo808[pad], fvel);
+            break;
+        case SYNTH_ENGINE_909:
+            if(pad < 16) synth909.Trigger(padTo909[pad], fvel);
+            break;
+        case SYNTH_ENGINE_505:
+            if(pad < 16) synth505.Trigger(padTo505[pad], fvel);
+            break;
+        case SYNTH_ENGINE_303: {
+            uint8_t note = (pad < 16) ? padTo303Midi[pad] : 48;
+            bool    acc  = (fvel > 0.85f);
+            acid303.NoteOn(note, acc, false);
+            break;
+        }
+        case SYNTH_ENGINE_WTOSC: {
+            uint8_t note = (pad < 16) ? trackWtNote[pad] : 60;
+            wtOsc.NoteOn(note, fvel);
+            break;
+        }
+        case SYNTH_ENGINE_SH101: {
+            uint8_t note = (pad < 16) ? trackSH101Note[pad] : 60;
+            synthSH101.NoteOn(note, fvel);
+            break;
+        }
+        case SYNTH_ENGINE_FM2OP: {
+            uint8_t note = (pad < 16) ? trackFM2OpNote[pad] : 60;
+            synthFM2Op.NoteOn(note, fvel);
+            break;
+        }
+        case SYNTH_ENGINE_PHYS: {
+            float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
+            physModal.SetFreq(freq);
+            physString.SetFreq(freq);
+            physModal.SetAccent(fvel);
+            physString.SetAccent(fvel);
+            physModalActive = true;
+            physStringActive = true;
+            break;
+        }
+        case SYNTH_ENGINE_NOISE: {
+            float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
+            noisePart.SetFreq(freq);
+            noisePart.SetDensity(0.5f + fvel * 0.5f);
+            noisePartActive = true;
+            break;
+        }
+    }
+}
+
 /* ═══════════════════════════════════════════════════════════════════
  *  23. PROCESS COMMAND  (ALL RED808 commands)
  * ═══════════════════════════════════════════════════════════════════ */
@@ -5496,55 +5555,7 @@ static void ProcessCommand()
             if(livEng >= 0 && livEng < SYNTH_ENGINE_COUNT){
                 /* Synth engine activo: disparar synth, NO sampler */
                 float fvel = clampF(vel / 127.0f, 0.0f, 1.0f);
-                switch(livEng){
-                    case SYNTH_ENGINE_808:
-                        if(pad < 16) synth808.Trigger(padTo808[pad], fvel);
-                        break;
-                    case SYNTH_ENGINE_909:
-                        if(pad < 16) synth909.Trigger(padTo909[pad], fvel);
-                        break;
-                    case SYNTH_ENGINE_505:
-                        if(pad < 16) synth505.Trigger(padTo505[pad], fvel);
-                        break;
-                    case SYNTH_ENGINE_303: {
-                        uint8_t note = (pad < 16) ? padTo303Midi[pad] : 48;
-                        bool    acc  = (fvel > 0.85f);
-                        acid303.NoteOn(note, acc, false);
-                        break;
-                    }
-                    case SYNTH_ENGINE_WTOSC: {
-                        uint8_t note = (pad < 16) ? trackWtNote[pad] : 60;
-                        wtOsc.NoteOn(note, fvel);
-                        break;
-                    }
-                    case SYNTH_ENGINE_SH101: {           /* I1 */
-                        uint8_t note = (pad < 16) ? trackSH101Note[pad] : 60;
-                        synthSH101.NoteOn(note, fvel);
-                        break;
-                    }
-                    case SYNTH_ENGINE_FM2OP: {           /* I2 */
-                        uint8_t note = (pad < 16) ? trackFM2OpNote[pad] : 60;
-                        synthFM2Op.NoteOn(note, fvel);
-                        break;
-                    }
-                    case SYNTH_ENGINE_PHYS: {
-                        float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
-                        physModal.SetFreq(freq);
-                        physString.SetFreq(freq);
-                        physModal.SetAccent(fvel);
-                        physString.SetAccent(fvel);
-                        physModalActive = true;
-                        physStringActive = true;
-                        break;
-                    }
-                    case SYNTH_ENGINE_NOISE: {
-                        float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
-                        noisePart.SetFreq(freq);
-                        noisePart.SetDensity(0.5f + fvel * 0.5f);
-                        noisePartActive = true;
-                        break;
-                    }
-                }
+                TriggerSynthEngineForTrack(pad, livEng, fvel);
             } else {
                 /* Modo sampler (por defecto) */
                 TriggerPad(pad, vel, 100, 0, 0, liveVolume, livePitch, true);
@@ -5570,55 +5581,7 @@ static void ProcessCommand()
             int8_t seqEng = (pad < DSQ_TRACKS) ? dsqTrackEngine[pad] : -1;
             if(seqEng >= 0 && seqEng < SYNTH_ENGINE_COUNT){
                 float fvel = clampF(p[1] / 127.0f, 0.0f, 1.0f);
-                switch(seqEng){
-                    case SYNTH_ENGINE_808:
-                        if(pad < 16) synth808.Trigger(padTo808[pad], fvel);
-                        break;
-                    case SYNTH_ENGINE_909:
-                        if(pad < 16) synth909.Trigger(padTo909[pad], fvel);
-                        break;
-                    case SYNTH_ENGINE_505:
-                        if(pad < 16) synth505.Trigger(padTo505[pad], fvel);
-                        break;
-                    case SYNTH_ENGINE_303: {
-                        uint8_t note = (pad < 16) ? padTo303Midi[pad] : 48;
-                        bool    acc  = (fvel > 0.85f);
-                        acid303.NoteOn(note, acc, false);
-                        break;
-                    }
-                    case SYNTH_ENGINE_WTOSC: {
-                        uint8_t note = (pad < 16) ? trackWtNote[pad] : 60;
-                        wtOsc.NoteOn(note, fvel);
-                        break;
-                    }
-                    case SYNTH_ENGINE_SH101: {
-                        uint8_t note = (pad < 16) ? trackSH101Note[pad] : 60;
-                        synthSH101.NoteOn(note, fvel);
-                        break;
-                    }
-                    case SYNTH_ENGINE_FM2OP: {
-                        uint8_t note = (pad < 16) ? trackFM2OpNote[pad] : 60;
-                        synthFM2Op.NoteOn(note, fvel);
-                        break;
-                    }
-                    case SYNTH_ENGINE_PHYS: {
-                        float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
-                        physModal.SetFreq(freq);
-                        physString.SetFreq(freq);
-                        physModal.SetAccent(fvel);
-                        physString.SetAccent(fvel);
-                        physModalActive = true;
-                        physStringActive = true;
-                        break;
-                    }
-                    case SYNTH_ENGINE_NOISE: {
-                        float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
-                        noisePart.SetFreq(freq);
-                        noisePart.SetDensity(0.5f + fvel * 0.5f);
-                        noisePartActive = true;
-                        break;
-                    }
-                }
+                TriggerSynthEngineForTrack(pad, seqEng, fvel);
             } else {
                 TriggerPad(pad, p[1], p[2], (int8_t)p[3], maxS, seqVolume);
                 if(kTriggerSynthOnLiveCmd)
@@ -7472,54 +7435,7 @@ static void ProcessCommand()
                 int8_t bEng = (pad < DSQ_TRACKS) ? dsqTrackEngine[pad] : -1;
                 if(bEng >= 0 && bEng < SYNTH_ENGINE_COUNT){
                     float fvel = clampF(vel / 127.0f, 0.0f, 1.0f);
-                    switch(bEng){
-                        case SYNTH_ENGINE_808:
-                            if(pad < 16) synth808.Trigger(padTo808[pad], fvel);
-                            break;
-                        case SYNTH_ENGINE_909:
-                            if(pad < 16) synth909.Trigger(padTo909[pad], fvel);
-                            break;
-                        case SYNTH_ENGINE_505:
-                            if(pad < 16) synth505.Trigger(padTo505[pad], fvel);
-                            break;
-                        case SYNTH_ENGINE_303: {
-                            uint8_t note = (pad < 16) ? padTo303Midi[pad] : 48;
-                            acid303.NoteOn(note, fvel > 0.85f, false);
-                            break;
-                        }
-                        case SYNTH_ENGINE_WTOSC: {
-                            uint8_t note = (pad < 16) ? trackWtNote[pad] : 60;
-                            wtOsc.NoteOn(note, fvel);
-                            break;
-                        }
-                        case SYNTH_ENGINE_SH101: {
-                            uint8_t note = (pad < 16) ? trackSH101Note[pad] : 60;
-                            synthSH101.NoteOn(note, fvel);
-                            break;
-                        }
-                        case SYNTH_ENGINE_FM2OP: {
-                            uint8_t note = (pad < 16) ? trackFM2OpNote[pad] : 60;
-                            synthFM2Op.NoteOn(note, fvel);
-                            break;
-                        }
-                        case SYNTH_ENGINE_PHYS: {
-                            float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
-                            physModal.SetFreq(freq);
-                            physString.SetFreq(freq);
-                            physModal.SetAccent(fvel);
-                            physString.SetAccent(fvel);
-                            physModalActive = true;
-                            physStringActive = true;
-                            break;
-                        }
-                        case SYNTH_ENGINE_NOISE: {
-                            float freq = 440.f * powf(2.f, ((pad < 16 ? trackWtNote[pad] : 60) - 69) / 12.f);
-                            noisePart.SetFreq(freq);
-                            noisePart.SetDensity(0.5f + fvel * 0.5f);
-                            noisePartActive = true;
-                            break;
-                        }
-                    }
+                    TriggerSynthEngineForTrack(pad, bEng, fvel);
                 } else {
                     TriggerPad(pad, vel, tvol, pan, maxS, seqVolume);
                 }

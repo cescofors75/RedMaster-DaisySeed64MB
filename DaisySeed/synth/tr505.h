@@ -55,6 +55,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
+#include "dsp_common.h"
 
 #ifndef TR505_TWOPI
 #define TR505_TWOPI 6.283185307179586f
@@ -64,84 +65,14 @@ namespace TR505 {
 
 /* =====================================================================
  *  UTILIDADES DSP
+ *  (Clamp / FastTanh / Rng / SVF viven en dsp_common.h — ver ese header)
  * ===================================================================== */
-
-static inline float Clamp(float v, float lo, float hi) {
-    return v < lo ? lo : (v > hi ? hi : v);
-}
-
-/* tanh(x) Pade 3/3: error < 0.4% en [-4,4]  ~3x mas rapido */
-static inline float FastTanh(float x) {
-    x = Clamp(x, -3.0f, 3.0f);          // evita distorsion por overflow Pade
-    const float x2 = x * x;
-    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
-}
 
 /* Smoothstep velocity: mas natural que lineal */
 static inline float VelCurve(float v) {
     v = Clamp(v, 0.0f, 1.0f);
     return v * v * (3.0f - 2.0f * v);
 }
-
-/* Xoshiro32** PRNG */
-struct Rng {
-    uint32_t s[4];
-
-    void Seed(uint32_t seed) {
-        for (int i = 0; i < 4; i++) {
-            seed += 0x9e3779b9u;
-            uint32_t z = seed;
-            z = (z ^ (z >> 16)) * 0x85ebca6bu;
-            z = (z ^ (z >> 13)) * 0xc2b2ae35u;
-            s[i] = z ^ (z >> 16);
-        }
-    }
-
-    uint32_t Next() {
-        const uint32_t r = s[0] + s[3];
-        const uint32_t t = s[1] << 9;
-        s[2] ^= s[0]; s[3] ^= s[1];
-        s[1] ^= s[2]; s[0] ^= s[3];
-        s[2] ^= t;
-        s[3] = (s[3] << 11) | (s[3] >> 21);
-        return r;
-    }
-
-    float White() {
-        return ((float)(int32_t)Next()) * (1.0f / 2147483648.0f);
-    }
-};
-
-/* SVF -- State Variable Filter (Simper/Cytomic)
- * SetCoefs() en Trigger() o Init() -- NUNCA en Process() */
-struct SVF {
-    float g=0, k=1, a1=0, a2=0, a3=0, ic1=0, ic2=0;
-
-    void SetCoefs(float sr, float fc, float Q) {
-        g  = tanf(TR505_TWOPI * Clamp(fc, 10.0f, sr * 0.49f) / (2.0f * sr));
-        k  = 1.0f / Clamp(Q, 0.5f, 40.0f);
-        a1 = 1.0f / (1.0f + g * (g + k));
-        a2 = g * a1;
-        a3 = g * a2;
-    }
-
-    void Reset() { ic1 = ic2 = 0.0f; }
-
-    float ProcessLP(float v0) {
-        float v3=v0-ic2, v1=a1*ic1+a2*v3, v2=ic2+a2*ic1+a3*v3;
-        ic1=2.f*v1-ic1; ic2=2.f*v2-ic2; return v2;
-    }
-
-    float ProcessBP(float v0) {
-        float v3=v0-ic2, v1=a1*ic1+a2*v3, v2=ic2+a2*ic1+a3*v3;
-        ic1=2.f*v1-ic1; ic2=2.f*v2-ic2; return v1;
-    }
-
-    float ProcessHP(float v0) {
-        float v3=v0-ic2, v1=a1*ic1+a2*v3, v2=ic2+a2*ic1+a3*v3;
-        ic1=2.f*v1-ic1; ic2=2.f*v2-ic2; return v0-k*v1-v2;
-    }
-};
 
 /* =====================================================================
  *  LOFI PROCESSOR -- el alma de la TR-505

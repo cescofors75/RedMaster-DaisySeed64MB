@@ -2014,7 +2014,10 @@ static uint16_t crc16(const uint8_t* d, uint16_t len){
  *  19. DSP HELPERS
  * ═══════════════════════════════════════════════════════════════════ */
 static inline float clampF(float v, float lo, float hi){
-    return v < lo ? lo : (v > hi ? hi : v);
+    /* fmaxf/fminf resolve to the non-NaN operand when one side is NaN, so a
+     * NaN input collapses to `lo` here — the `v<lo`/`v>hi` comparisons used
+     * before both evaluate false for NaN and let it pass through unclamped. */
+    return fminf(fmaxf(v, lo), hi);
 }
 
 static inline void ConfigureFlanger(Flanger& flanger, float rateHz, float depth, float feedback)
@@ -3990,6 +3993,20 @@ static void ResetTrackRuntimeState(uint8_t track)
     trkCompEnv[track]    = 0.0f;
     trackPeak[track]     = 0.0f;
     trkFxRouted[track]   = false;
+    /* Clear per-track LFO / AD envelope too — otherwise a track that had an
+     * active LFO or envelope before a kit/pad reload keeps modulating the
+     * newly-loaded sample with stale parameters (AudioCallback reads these
+     * directly, ungated by trkFxRouted). */
+    trkLfoActive[track]   = false;
+    trkLfoWave[track]     = LFO_WAVE_SINE;
+    trkLfoTarget[track]   = LFO_TGT_GAIN;
+    trkLfoRate[track]     = 1.0f;
+    trkLfoDepth[track]    = 0.0f;
+    trkLfoPhase[track]    = 0.0f;
+    trkLfoSH[track]       = 0.0f;
+    trkEnvAdActive[track] = false;
+    trkEnvAttackMs[track] = 1.0f;
+    trkEnvDecayMs[track]  = 250.0f;
     memset(trkEchoBuf[track], 0, sizeof(trkEchoBuf[track]));
 }
 
@@ -4473,7 +4490,23 @@ static void DsqFireStep()
     const uint8_t slen = dseq.patternLength;
     const uint8_t step = (uint8_t)((dseq.currentStep % (int)slen + (int)slen) % (int)slen);
     for(uint8_t track = 0; track < DSQ_TRACKS; track++){
-        pendingTriggers[track].active = false;
+        PendingTrigger& oldPending = pendingTriggers[track];
+        if(oldPending.active){
+            /* A previous step's ratchet/humanize burst hadn't finished when
+             * this new step boundary hit (large humanizeTimingMs + high
+             * ratchet count can push delay + interval*ratchets past
+             * samplesPerStep). Flush the remaining hits now instead of
+             * silently dropping them — better a compressed burst than a
+             * missing note. */
+            DsqStepFull& os = dsqSteps[oldPending.pattern][oldPending.track][oldPending.step];
+            while(oldPending.repeatsRemaining > 0){
+                DsqTriggerTrackNow(oldPending.track, os, oldPending.velocity);
+                oldPending.repeatsRemaining--;
+                oldPending.velocity = (uint8_t)((oldPending.velocity * 88u) / 100u);
+                if(oldPending.velocity == 0) oldPending.velocity = 1;
+            }
+            oldPending.active = false;
+        }
         if(dseq.trackMuted[track]) continue;
         DsqStepFull& s = dsqSteps[pat][track][step];
         if(!s.active || s.velocity == 0 || s.probability == 0) continue;
@@ -4602,8 +4635,13 @@ void AudioCallback(AudioHandle::InputBuffer  /*in*/,
             break;
         }
     }
-    float lfoVal[MAX_PADS];
-    uint8_t trkFilterLfoSet[MAX_PADS];
+    /* Zero-init: when anyTrackLfo is false the per-sample reset loop below is
+     * skipped entirely for the whole block, so these must not start as
+     * uninitialized stack garbage — a track with trkLfoActive=true but
+     * depth<=0.0001f (e.g. just armed, fader still at 0) still reaches the
+     * per-voice LFO_TGT_* reads further down even though anyTrackLfo is false. */
+    float lfoVal[MAX_PADS] = {};
+    uint8_t trkFilterLfoSet[MAX_PADS] = {};
 
     for(size_t i = 0; i < size; i++){
         /* ── Drenar SPI FIFO cada 4 samples (~83µs) para evitar overflow
@@ -6606,8 +6644,11 @@ static void ProcessCommand()
                 break;
             DIR dir; FILINFO fno;
             uint8_t padIdx = lk.startPad;
-            uint8_t maxIdx = lk.startPad + lk.maxPads;
-            if(maxIdx > MAX_PADS) maxIdx = MAX_PADS;
+            /* Widen to uint16_t before adding — startPad+maxPads can exceed
+             * 255 and silently wrap to a tiny uint8_t sum, which clamps to a
+             * bogus (often empty) range instead of MAX_PADS. */
+            uint16_t maxIdxWide = (uint16_t)lk.startPad + (uint16_t)lk.maxPads;
+            uint8_t maxIdx = (maxIdxWide > MAX_PADS) ? (uint8_t)MAX_PADS : (uint8_t)maxIdxWide;
             bool canonicalLiveRange = (lk.startPad == 0 && lk.maxPads >= 16);
 
             /* ── Mute audio output completely during SD loading ── */
@@ -7123,6 +7164,13 @@ static void ProcessCommand()
             uint8_t instrument = p[1];
             uint8_t paramId = p[2];
             float val; memcpy(&val, p + 3, 4);
+            /* Reject NaN/Inf up front: many engine setters below (SetDecay,
+             * SetPitch, SetDrive, ...) store `val` raw with no internal
+             * clamp, and downstream clampF() calls don't strip NaN either
+             * (v<lo and v>hi are both false for NaN, so it passes through
+             * unclamped). A poisoned value can wedge an engine's internal
+             * envelope/filter coefficients until the next CMD_RESET. */
+            if(!isfinite(val)) break;
             /* paramId: 0=decay, 1=pitch, 2=tone, 3=volume, 4=snappy */
             switch(engine){
                 /* El byte 'instrument' de CMD_SYNTH_PARAM YA llega como id nativo
@@ -8218,6 +8266,12 @@ static bool LoadWavToPad(const char* filepath, uint8_t padIdx)
     if(bps == 16 && ch == 1){
         /* Optimal: direct read */
         if(f_read(&fil, sampleData, totalFrames * 2, &br) != FR_OK)
+            goto done;
+        /* A short read means the SD transfer failed partway through — don't
+         * silently accept a truncated/corrupt sample as success (the pool
+         * slot was sized for totalFrames, so a partial read would also leave
+         * capacity and length out of sync for no benefit). */
+        if(br != totalFrames * 2)
             goto done;
         sampleLength[padIdx] = br / 2;
     } else {

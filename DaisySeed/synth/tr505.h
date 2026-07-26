@@ -562,21 +562,35 @@ public:
     float tone   = 0.5f;
     float volume = 1.0f;
 
-    void Init(float sr) { BaseInit(sr, 5000.0f + tone * 1500.0f, 0x505BB02u); /* hihatO */ }
+    void Init(float sr) {
+        BaseInit(sr, 5000.0f + tone * 1500.0f, 0x505BB02u); /* hihatO */
+        chokeGain_ = 1.0f;
+        choking_ = false;
+    }
 
     void Trigger(float v = 1.0f) {
         hpFilter_.SetCoefs(sr_, 5000.0f + tone * 1500.0f, 0.65f);
         BaseTrigger(v);
+        chokeGain_ = 1.0f;
+        choking_ = false;
     }
 
-    void Choke() { active_ = false; }
+    /* Ramp down instead of an instant hard-cut: an immediate active_=false
+     * clips the waveform mid-cycle and clicks audibly (closed-hat choking an
+     * open-hat is a normal, frequent gesture on real drum machines). Mirrors
+     * TR909's HiHatOpen::Choke(). */
+    void Choke() { if (active_) choking_ = true; }
 
     float Process() {
         if (!active_) return 0.0f;
         float hp  = hpFilter_.ProcessHP(rng_.White());
         float env = expf(-time_ / decay);
         env = env * sqrtf(env);  /* env^1.5: cierre seco pero no tan agresivo como closed */
-        float out = FastTanh(hp * 2.3f) * env;
+        if (choking_) {
+            chokeGain_ *= 0.94f;
+            if (chokeGain_ < 0.001f) active_ = false;
+        }
+        float out = FastTanh(hp * 2.3f) * env * chokeGain_;
         out = lofiProc_.Process(out);
         time_ += dt_;
         if (env < 0.0005f) active_ = false;
@@ -586,6 +600,10 @@ public:
     bool IsActive() const { return active_; }
     void SetDecay(float d) { decay = Clamp(d, 0.05f, 1.0f); }
     void SetLoFi(float l)  { BaseSetLoFi(l); }
+
+private:
+    float chokeGain_ = 1.0f;
+    bool  choking_ = false;
 };
 
 /* =====================================================================
@@ -1228,6 +1246,8 @@ public:
         float pos = 0.0f;
         float step = 1.0f;
         float velocity = 1.0f;
+        float chokeGain = 1.0f;
+        bool choking = false;
         bool active = false;
     };
 
@@ -1254,13 +1274,17 @@ public:
         if (inst >= INST_COUNT) return;
         if (inst == INST_HIHAT_C) {
             hihatO.Choke();
-            pcm_[INST_HIHAT_O].active = false;
+            if (pcm_[INST_HIHAT_O].active)
+                pcm_[INST_HIHAT_O].choking = true;
         }
         if (pcm_[inst].data != nullptr && pcm_[inst].length > 0) {
-            pcm_[inst].pos = 0.0f;
-            pcm_[inst].step = pcm_[inst].sourceRate / sr_;
-            pcm_[inst].velocity = VelCurve(velocity);
-            pcm_[inst].active = true;
+            PcmSlot& slot = pcm_[inst];
+            slot.pos = 0.0f;
+            slot.step = slot.sourceRate / sr_;
+            slot.velocity = VelCurve(velocity);
+            slot.chokeGain = 1.0f;
+            slot.choking = false;
+            slot.active = true;
             return;
         }
         switch (inst) {
@@ -1322,9 +1346,14 @@ public:
             float s0 = slot.data[idx] / 32768.0f;
             float s1 = (idx + 1u < slot.length) ? slot.data[idx + 1u] / 32768.0f : 0.0f;
             float sample = s0 + frac * (s1 - s0);
+            if (slot.choking) {
+                slot.chokeGain *= 0.94f;
+                if (slot.chokeGain < 0.001f) slot.active = false;
+            }
             slot.pos += slot.step;
             if (slot.pos >= (float)slot.length) slot.active = false;
-            if (!chanMute_[id]) mix += sample * slot.velocity * chanVol_[id];
+            if (!chanMute_[id])
+                mix += sample * slot.velocity * slot.chokeGain * chanVol_[id];
         }
 
         /* Soft limiter */
@@ -1358,6 +1387,8 @@ public:
         slot.sourceRate = Clamp(sourceRate, 1000.0f, 384000.0f);
         slot.pos = 0.0f;
         slot.step = slot.sourceRate / sr_;
+        slot.chokeGain = 1.0f;
+        slot.choking = false;
         slot.active = false;
         return true;
     }

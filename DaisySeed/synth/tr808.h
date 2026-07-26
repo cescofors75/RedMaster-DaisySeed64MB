@@ -559,15 +559,23 @@ public:
     float tone   = 0.5f;
     float volume = 1.0f;
 
-    void Init(float sr)           { BaseInit(sr, 7200.0f); }
-    void Trigger(float v = 1.0f)  { BaseTrigger(v); }
-    void Choke()                  { active_ = false; }
+    void Init(float sr)           { BaseInit(sr, 7200.0f); chokeGain_ = 1.0f; choking_ = false; }
+    void Trigger(float v = 1.0f)  { BaseTrigger(v); chokeGain_ = 1.0f; choking_ = false; }
+    /* Ramp down instead of an instant hard-cut: an immediate active_=false
+     * clips the waveform mid-cycle and clicks audibly (closed-hat choking an
+     * open-hat is a normal, frequent gesture on real drum machines). Mirrors
+     * TR909's HiHatOpen::Choke(). */
+    void Choke()                  { if (active_) choking_ = true; }
 
     float Process() {
         if (!active_) return 0.0f;
         float hp  = hpFilter_.ProcessHP(MetallicCore());
         float env = expf(-time_ / decay);
-        float out = FastTanh(hp * (0.7f + tone * 0.9f) * 2.9f) * env;
+        if (choking_) {
+            chokeGain_ *= 0.94f;
+            if (chokeGain_ < 0.001f) active_ = false;
+        }
+        float out = FastTanh(hp * (0.7f + tone * 0.9f) * 2.9f) * env * chokeGain_;
         time_ += dt_;
         if (env < 0.0005f) active_ = false;
         return out * volume * vel_;
@@ -575,6 +583,10 @@ public:
 
     bool IsActive() const { return active_; }
     void SetDecay(float d) { decay = Clamp(d, 0.05f, 2.0f); }
+
+private:
+    float chokeGain_ = 1.0f;
+    bool  choking_ = false;
 };
 
 /* =====================================================================

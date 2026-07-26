@@ -184,13 +184,18 @@ public:
     void Retrigger() { stage_ = ENV_ATTACK; }
 
     float Process(float attack_s, float decay_s, float sustain, float release_s) {
+        /* Clamp the *sr_ product, not just the raw time, so a zero/negative
+         * or absurdly large time (params is a public struct, so it can be
+         * written directly, bypassing the Set* clamps below) can't leave a
+         * stage stuck ramping forever or divide by zero. Mirrors sh101.h's
+         * Adsr::Process. */
         switch (stage_) {
             case ENV_ATTACK:
-                value_ += 1.0f / (attack_s * sr_);
+                value_ += 1.0f / Clamp(attack_s * sr_, 1.0f, sr_ * 10.0f);
                 if (value_ >= 1.0f) { value_ = 1.0f; stage_ = ENV_DECAY; }
                 break;
             case ENV_DECAY:
-                value_ -= (1.0f - sustain) / (decay_s * sr_);
+                value_ -= (1.0f - sustain) / Clamp(decay_s * sr_, 1.0f, sr_ * 20.0f);
                 if (value_ <= sustain) {
                     value_ = sustain;
                     stage_ = (sustain < 1e-4f) ? ENV_IDLE : ENV_SUSTAIN;
@@ -204,7 +209,7 @@ public:
                  * release_s, en vez de cada sample durante toda la cola. */
                 if (release_s != relCached_) {
                     relCached_ = release_s;
-                    relCoef_   = expf(-1.0f / (release_s * sr_));
+                    relCoef_   = expf(-1.0f / Clamp(release_s * sr_, 1.0f, sr_ * 20.0f));
                 }
                 value_ *= relCoef_;
                 if (value_ < 1e-5f) { value_ = 0.0f; stage_ = ENV_IDLE; }
@@ -544,7 +549,13 @@ public:
         }
 
         /* ── 6. FILTRO LADDER ── */
-        if (accent_) accentChirpEnv_ *= accentChirpCoef_;  /* 25ms decay chirp */
+        /* Decay unconditionally: accentChirpEnv_ is only *set* on an
+         * accented NoteOn, but it must keep decaying on every note
+         * afterwards too. Gating the decay on accent_ (as before) let a
+         * fast accented→non-accented transition freeze the leftover chirp
+         * at its residual value forever, biasing every later non-accented
+         * note's cutoff until the next accent. */
+        accentChirpEnv_ *= accentChirpCoef_;  /* 25ms decay chirp */
         float envAmount = params.envMod * 12000.0f * fEnv;
         float fc = Clamp(params.cutoff + envAmount + accentChirpEnv_, 20.0f, sr_ * 0.48f);
 
